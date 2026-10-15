@@ -3,6 +3,110 @@ import Combine
 import QuartzCore
 import SwiftUI
 
+// Widget types own their dimensions. Users arrange instances, not their sizes.
+enum WidgetKind: String, CaseIterable, Identifiable {
+    case clock
+
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .clock: return "Saat" }
+    }
+    var symbol: String {
+        switch self { case .clock: return "clock" }
+    }
+    var summary: String {
+        switch self { case .clock: return "Yerel saat, tarih ve gün" }
+    }
+    var descriptor: WidgetDescriptor {
+        switch self {
+        case .clock: return WidgetDescriptor(id: rawValue, span: 1, height: 148)
+        }
+    }
+}
+
+struct WidgetDescriptor: Equatable {
+    let id: String
+    let span: Int
+    let height: CGFloat
+}
+
+// One source of truth for card positions, scroll height and native panel size.
+// Packing is ordered: a wide widget starts a new row if it cannot fit.
+struct WidgetDrawerLayout: Equatable {
+    struct Item: Identifiable, Equatable {
+        let id: String
+        let frame: CGRect
+        let widgetHeight: CGFloat
+    }
+
+    static let maximumWidth: CGFloat = 880
+    static let cellWidth: CGFloat = 201
+    static let inset: CGFloat = 20
+    static let gap: CGFloat = 12
+    static let toolbarButtonSize: CGFloat = 28
+    static let toolbarGap: CGFloat = 8
+    static let topPadding: CGFloat = 12
+    static let editingControlsHeight: CGFloat = 36
+    static let catalogHeight: CGFloat = 110
+
+    let width: CGFloat
+    let columns: Int
+    let items: [Item]
+    let gridHeight: CGFloat
+    let contentHeight: CGFloat
+    var viewportHeight: CGFloat { max(0, contentHeight - Self.topPadding) }
+
+    static func minimumWidth(collapsedWidth: CGFloat) -> CGFloat {
+        // Leave the centered physical notch clear of the right-hand controls.
+        collapsedWidth + 2 * (inset + 2 * toolbarButtonSize + toolbarGap + 8)
+    }
+
+    init(widgets: [WidgetDescriptor], maximumWidth: CGFloat, minimumWidth: CGFloat = 0,
+         maximumHeight: CGFloat, editing: Bool) {
+        let limit = max(1, min(Self.maximumWidth, maximumWidth))
+        let capacity = max(1, min(4, Int((limit - 2 * Self.inset + Self.gap) / (Self.cellWidth + Self.gap))))
+        var occupied = 0
+        var requiredColumns = 1
+        for widget in widgets {
+            let span = max(1, min(capacity, widget.span))
+            if occupied + span > capacity { occupied = 0 }
+            occupied += span
+            requiredColumns = max(requiredColumns, occupied)
+        }
+        columns = requiredColumns
+        let gridWidth = CGFloat(columns) * Self.cellWidth + CGFloat(columns - 1) * Self.gap
+        let contentMinimum: CGFloat = widgets.isEmpty ? 300 : 0
+        let catalogMinimum: CGFloat = editing ? 290 : 0
+        width = min(limit, max(gridWidth + 2 * Self.inset, minimumWidth, contentMinimum, catalogMinimum))
+        let availableWidth = max(1, width - 2 * Self.inset)
+        let cellWidth = max(1, min(Self.cellWidth, (availableWidth - CGFloat(columns - 1) * Self.gap) / CGFloat(columns)))
+        let leadingInset = (width - (CGFloat(columns) * cellWidth + CGFloat(columns - 1) * Self.gap)) / 2
+        var column = 0
+        var rowY: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var placed: [Item] = []
+        for widget in widgets {
+            let span = max(1, min(columns, widget.span))
+            if column + span > columns {
+                rowY += rowHeight + Self.gap
+                rowHeight = 0
+                column = 0
+            }
+            let height = widget.height + (editing ? Self.editingControlsHeight : 0)
+            placed.append(Item(id: widget.id, frame: CGRect(
+                x: leadingInset + CGFloat(column) * (cellWidth + Self.gap), y: rowY,
+                width: cellWidth * CGFloat(span) + Self.gap * CGFloat(span - 1), height: height
+            ), widgetHeight: widget.height))
+            rowHeight = max(rowHeight, height)
+            column += span
+        }
+        items = placed
+        gridHeight = widgets.isEmpty ? 148 : rowY + rowHeight
+        contentHeight = min(maximumHeight, Self.topPadding + gridHeight + Self.inset
+                            + (editing ? Self.catalogHeight : 0))
+    }
+}
+
 @MainActor
 final class IslandState: ObservableObject {
     @Published var expanded = false
@@ -11,9 +115,16 @@ final class IslandState: ObservableObject {
     @Published var topBand: CGFloat = 32
     @Published var collapsedBottomInset: CGFloat = 0
     @Published var collapsedWidth: CGFloat = 200
-    @Published var expandedWidth: CGFloat = 420
-    let contentHeight: CGFloat = 132
+    @Published var layout = WidgetDrawerLayout(widgets: [WidgetKind.clock.descriptor], maximumWidth: 880,
+                                              minimumWidth: WidgetDrawerLayout.minimumWidth(collapsedWidth: 200),
+                                              maximumHeight: 560, editing: false)
+    @Published var isEditingWidgets = false {
+        didSet { if oldValue != isEditingWidgets { editingChanged?() } }
+    }
+    var expandedWidth: CGFloat { layout.width }
+    var contentHeight: CGFloat { layout.contentHeight }
     var openSettings: (() -> Void)?
+    var editingChanged: (() -> Void)?
     var surfaceWidth: CGFloat { collapsedWidth + (expandedWidth - collapsedWidth) * progress }
     var surfaceHeight: CGFloat { topBand + contentHeight * progress - collapsedBottomInset * (1 - progress) }
     var canvasSize: NSSize { NSSize(width: expandedWidth + 24, height: topBand + contentHeight + 12) }
@@ -122,6 +233,7 @@ final class IslandController: NSObject {
         )
         super.init()
         state.openSettings = openSettings
+        state.editingChanged = { [weak self] in self?.editingChanged() }
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.colorSpace = .sRGB
@@ -163,6 +275,10 @@ final class IslandController: NSObject {
             guard let self, !enabled else { return }
             self.finishTransition()
         }.store(in: &subscriptions)
+        // @Published emits before assignment, so pass the new list explicitly.
+        settings.$widgets.dropFirst().sink { [weak self] widgets in
+            self?.updateDrawerLayout(widgets: widgets)
+        }.store(in: &subscriptions)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -187,6 +303,8 @@ final class IslandController: NSObject {
     }
 
     func hide() {
+        panel.orderOut(nil)
+        state.isEditingWidgets = false
         pendingHover?.cancel()
         stopAnimation()
         state.expanded = false
@@ -194,7 +312,6 @@ final class IslandController: NSObject {
         state.contentProgress = 0
         transition = IslandTransition()
         pointerInside = false
-        panel.orderOut(nil)
         stopMouseMonitoring()
     }
 
@@ -222,7 +339,7 @@ final class IslandController: NSObject {
             ?? NSScreen.main ?? NSScreen.screens.first
         guard let screen else { return }
         let notchHeight = screen.safeAreaInsets.top
-        state.topBand = notchHeight > 0 ? notchHeight : 10
+        state.topBand = notchHeight > 0 ? notchHeight : 32
         state.collapsedBottomInset = 3 / screen.backingScaleFactor
         topInset = notchHeight > 0 ? 0 : 8
         if notchHeight > 0,
@@ -234,7 +351,15 @@ final class IslandController: NSObject {
         } else {
             state.collapsedWidth = 190
         }
-        state.expandedWidth = min(max(420, state.collapsedWidth), screen.frame.width - 56)
+        updateDrawerLayout(widgets: settings.widgets)
+    }
+
+    private func updateDrawerLayout(widgets: [WidgetKind]) {
+        guard let screen else { return }
+        let maximumHeight = max(1, min(560, screen.frame.height - topInset - state.topBand - 32))
+        state.layout = WidgetDrawerLayout(widgets: widgets.map(\.descriptor), maximumWidth: screen.frame.width - 56,
+                                          minimumWidth: WidgetDrawerLayout.minimumWidth(collapsedWidth: state.collapsedWidth),
+                                          maximumHeight: maximumHeight, editing: state.isEditingWidgets)
         let size = state.canvasSize
         // The native window never resizes during hover. Only the black surface
         // inside this transparent canvas changes, so it cannot clip the spring.
@@ -244,7 +369,20 @@ final class IslandController: NSObject {
             width: size.width,
             height: size.height
         ), display: true)
+        pointerMoved()
         updateMousePassthrough()
+    }
+
+    private func editingChanged() {
+        pendingHover?.cancel()
+        updateDrawerLayout(widgets: settings.widgets)
+        guard panel.isVisible else { return }
+        if state.isEditingWidgets {
+            setExpanded(true)
+        } else {
+            // Explicitly reschedule even if the pointer was already outside.
+            hover(hoverFrame.contains(NSEvent.mouseLocation))
+        }
     }
 
     private var surfaceFrame: NSRect {
@@ -285,12 +423,14 @@ final class IslandController: NSObject {
         guard panel.isVisible else { return }
         pointerInside = inside
         pendingHover?.cancel()
+        guard !state.isEditingWidgets else { return }
         let delay = inside ? settings.openDelay : settings.closeDelay
         pendingHover = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(delay))
             } catch { return }
-            guard let self, !Task.isCancelled, self.panel.isVisible else { return }
+            guard let self, !Task.isCancelled, self.panel.isVisible,
+                  !self.state.isEditingWidgets else { return }
             if !inside {
                 // A resize may generate an exit event while the pointer is still inside.
                 guard !self.hoverFrame.contains(NSEvent.mouseLocation) else { return }

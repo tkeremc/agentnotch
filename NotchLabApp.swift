@@ -67,6 +67,9 @@ final class NotchSettings: ObservableObject {
     @Published var backgroundHex: String { didSet { defaults.set(backgroundHex, forKey: "island.background") } }
     @Published var foregroundHex: String { didSet { defaults.set(foregroundHex, forKey: "island.foreground") } }
     @Published var showsSeconds: Bool { didSet { defaults.set(showsSeconds, forKey: "island.seconds") } }
+    @Published private(set) var widgets: [WidgetKind] {
+        didSet { defaults.set(widgets.map(\.rawValue), forKey: "island.widgets") }
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -84,6 +87,29 @@ final class NotchSettings: ObservableObject {
         backgroundHex = defaults.string(forKey: "island.background") ?? "000000"
         foregroundHex = defaults.string(forKey: "island.foreground") ?? "FFFFFF"
         showsSeconds = defaults.bool(forKey: "island.seconds")
+        if let saved = defaults.stringArray(forKey: "island.widgets") {
+            var seen = Set<WidgetKind>()
+            widgets = saved.compactMap(WidgetKind.init(rawValue:)).filter { seen.insert($0).inserted }
+        } else {
+            widgets = [.clock]
+        }
+    }
+
+    func addWidget(_ widget: WidgetKind) {
+        guard !widgets.contains(widget) else { return }
+        widgets.append(widget)
+    }
+
+    func removeWidget(_ widget: WidgetKind) {
+        widgets.removeAll { $0 == widget }
+    }
+
+    func moveWidget(_ widget: WidgetKind, to destination: Int) {
+        guard let source = widgets.firstIndex(of: widget) else { return }
+        var reordered = widgets
+        reordered.remove(at: source)
+        reordered.insert(widget, at: min(max(0, destination), reordered.count))
+        if reordered != widgets { widgets = reordered }
     }
 
     var backgroundColor: Color {
@@ -105,6 +131,7 @@ final class NotchSettings: ObservableObject {
         backgroundHex = "000000"
         foregroundHex = "FFFFFF"
         showsSeconds = true
+        widgets = [.clock]
     }
 
     private static func clamped(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
