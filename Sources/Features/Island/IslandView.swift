@@ -75,8 +75,8 @@ struct IslandView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("leagent notch ayarları")
-            .accessibilityLabel("leagent notch ayarlarını aç")
+            .help("agentnotch ayarları")
+            .accessibilityLabel("agentnotch ayarlarını aç")
         }
         .foregroundStyle(settings.foregroundColor)
     }

@@ -13,7 +13,7 @@ struct NotchSettingsView: View {
                     .foregroundStyle(.primary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("leagent notch").font(.title2.bold())
+                    Text("agentnotch").font(.title2.bold())
                     Text("Adanı kendine göre ayarla.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -23,7 +23,7 @@ struct NotchSettingsView: View {
 
             Form {
                 Section {
-                    Toggle("leagent notch’u etkinleştir", isOn: $settings.isEnabled)
+                    Toggle("agentnotch’u etkinleştir", isOn: $settings.isEnabled)
                 } header: {
                     Text("Genel")
                 } footer: {

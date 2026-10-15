@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: NSHostingController(
                 rootView: NotchSettingsView(settings: settings)
             ))
-            window.title = "leagent notch Ayarları"
+            window.title = "agentnotch Ayarları"
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 540, height: 720))

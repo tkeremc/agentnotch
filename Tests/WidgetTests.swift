@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-@testable import NotchLab
+@testable import AgentNotch
 
 private struct TestFailure: Error, CustomStringConvertible {
     let description: String
@@ -168,7 +168,7 @@ struct WidgetTests {
     }
 
     private static func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
-        let suite = "NotchLab.WidgetTests.\(UUID().uuidString)"
+        let suite = "AgentNotch.WidgetTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         try body(defaults)

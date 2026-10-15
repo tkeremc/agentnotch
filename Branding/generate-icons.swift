@@ -1,5 +1,5 @@
 // Run from the source directory:
-// swift -module-cache-path /tmp/leagent-notch-icon-cache Branding/generate-icons.swift
+// swift -module-cache-path /tmp/agentnotch-icon-cache Branding/generate-icons.swift
 import AppKit
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -57,13 +57,13 @@ try writeJSON(["info": info], to: catalog.appendingPathComponent("Contents.json"
 let tile = ##"<rect x="64" y="64" width="896" height="896" rx="200" fill="#171717"/>"##
 let glyph = "<path d=\"\(svgPath)\" fill=\"white\"/>"
 try write("""
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="leagent notch">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="agentnotch">
   \(tile)
   \(glyph)
 </svg>
 """, to: branding.appendingPathComponent("app-icon.svg"))
 try write("""
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="224 352 576 304" role="img" aria-label="leagent notch">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="224 352 576 304" role="img" aria-label="agentnotch">
   \(glyph)
 </svg>
 """, to: branding.appendingPathComponent("notch-mark.svg"))

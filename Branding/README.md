@@ -1,4 +1,4 @@
-# leagent notch
+# agentnotch
 
 Tek beyaz çentik, düz koyu zemin. Yazı, renkli vurgu ve efekt içermez.
 
@@ -10,7 +10,7 @@ Tek beyaz çentik, düz koyu zemin. Yazı, renkli vurgu ve efekt içermez.
 Kaynak SVG ve native asset dosyalarını aynı geometriden yeniden üretmek için kaynak klasöründe:
 
 ```sh
-swift -module-cache-path /tmp/leagent-notch-icon-cache Branding/generate-icons.swift
+swift -module-cache-path /tmp/agentnotch-icon-cache Branding/generate-icons.swift
 ```
 
 SVG düzenleme kaynağıdır; uygulama ikonu Xcode'un AppIcon asset catalog desteğiyle paketlenir. macOS 14 desteği korunur.

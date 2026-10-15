@@ -1,4 +1,4 @@
-# leagent notch
+# agentnotch
 
 SwiftUI ve AppKit ile yazılmış, menü çubuğunda çalışan bir macOS uygulaması.
 Fare çentiğe geldiğinde widget çekmecesi açılır. Şu anda saat widget'ı bulunur.
@@ -6,8 +6,8 @@ macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
 
 ## Çalıştırma
 
-1. Bu klasördeki `leagent notch.xcodeproj` dosyasını Xcode ile aç.
-2. `leagent notch` şemasını ve `My Mac` hedefini seç.
+1. Bu klasördeki `agentnotch.xcodeproj` dosyasını Xcode ile aç.
+2. `agentnotch` şemasını ve `My Mac` hedefini seç.
 3. `⌘R` ile çalıştır.
 4. Fareyi çentiğe getir. Çentiksiz ekranda alan üst ortada görünür.
 5. Menü çubuğundaki simgeden ayarlara ulaşabilir veya uygulamayı kapatabilirsin.
@@ -18,8 +18,8 @@ Xcode proje dosyası, kaynaklar ve kaynak görseller bu Git deposunun içindedir
 ## Klasör yapısı
 
 ```text
-NotchLab/
-├── leagent notch.xcodeproj/      # Xcode hedefi, derleme ayarları ve ortak şema
+agentnotch/
+├── agentnotch.xcodeproj/      # Xcode hedefi, derleme ayarları ve ortak şema
 ├── Sources/                     # Uygulamaya derlenen Swift kodları
 │   ├── App/                     # Başlangıç, uygulama yaşam döngüsü, menü
 │   └── Features/
@@ -40,7 +40,7 @@ NotchLab/
 └── Branding/                    # Düzenlenebilir SVG'ler ve ikon üretim aracı
 ```
 
-Klasörler kodu sorumluluğuna göre düzenler. Üretim kodu tek bir `NotchLab`
+Klasörler kodu sorumluluğuna göre düzenler. Üretim kodu tek bir `AgentNotch`
 Swift modülüne derlenir; klasörler arasında ayrıca `import` yazman gerekmez.
 `Branding` ve `Tests` altındaki Swift dosyaları uygulama hedefine derlenmez.
 
@@ -48,7 +48,7 @@ Swift modülüne derlenir; klasörler arasında ayrıca `import` yazman gerekmez
 
 | Yapmak istediğin | İlgili dosya |
 | --- | --- |
-| Uygulamanın başlangıcını değiştirmek | `Sources/App/NotchLabApp.swift` |
+| Uygulamanın başlangıcını değiştirmek | `Sources/App/AgentNotchApp.swift` |
 | Açılışı ve ayarlar penceresini yönetmek | `Sources/App/AppDelegate.swift` |
 | Menü çubuğuna seçenek eklemek | `Sources/App/NotchMenu.swift` |
 | Bir tercihi kaydetmek veya varsayılanını değiştirmek | `Sources/Features/Settings/NotchSettings.swift` |
@@ -61,15 +61,15 @@ Swift modülüne derlenir; klasörler arasında ayrıca `import` yazman gerekmez
 | Saatin görünümünü değiştirmek | `Sources/Features/Widgets/Clock/ClockWidgetView.swift` |
 | Saat ve tarih biçimini değiştirmek | `Sources/Features/Widgets/Clock/ClockReadout.swift` |
 
-Akış: `NotchLabApp` uygulamayı başlatır. `AppDelegate`, ortak `NotchSettings`
+Akış: `AgentNotchApp` uygulamayı başlatır. `AppDelegate`, ortak `NotchSettings`
 nesnesini ve `IslandController` nesnesini oluşturur. Controller native pencereyi,
 fare olaylarını ve animasyonu yönetir; `IslandState` üzerinden arayüzü günceller.
 `IslandView`, widget çekmecesini gösterir. `WidgetDrawerLayout` hem arayüzün hem
 native pencerenin kullandığı boyutları hesaplar.
 
 `NotchSettings`, tercihleri `UserDefaults` ile saklar. Mevcut `island.*`
-anahtarları ve `com.local.NotchLab` uygulama kimliği korunmuştur; bu düzenleme
-kayıtlı tercihlerin sıfırlanmasını gerektirmez.
+anahtarları ve `com.local.NotchLab` uygulama kimliği ad değişikliğinde korunur;
+böylece kayıtlı tercihler kullanılmaya devam eder.
 
 ## Yeni Swift dosyası veya widget ekleme
 
@@ -94,8 +94,8 @@ yardımcı fonksiyonları ve iç durumları `private` kalır.
 Komutları bu README'nin bulunduğu klasörde çalıştır:
 
 ```sh
-xcodebuild -project "leagent notch.xcodeproj" \
-  -scheme "leagent notch" -configuration Debug \
+xcodebuild -project "agentnotch.xcodeproj" \
+  -scheme "agentnotch" -configuration Debug \
   -derivedDataPath build build
 
 bash Tests/run.sh
