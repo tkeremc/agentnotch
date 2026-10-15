@@ -2,6 +2,7 @@
 
 SwiftUI ve AppKit ile yazılmış, menü çubuğunda çalışan bir macOS uygulaması.
 Fare çentiğe geldiğinde widget çekmecesi açılır. Şu anda saat widget'ı bulunur.
+Sol üstteki ev ve çekmece ikonları widget’lar ile dosya deposu arasında geçiş yapar.
 macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
 
 ## Çalıştırma
@@ -14,6 +15,25 @@ macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
 
 Proje yerel geliştirme için ad-hoc imzalanır; geliştirme ekibi seçmek gerekmez.
 Xcode proje dosyası, kaynaklar ve kaynak görseller bu Git deposunun içindedir.
+
+## Dosya deposu
+
+Finder’da bir dosya ya da klasörü sürüklemeye başladığında çentiğin altında küçük
+bir depo göstergesi belirir. Dosyaları çentiğe yaklaştırdığında depo
+otomatik açılır; kesikli çerçeveli alana bıraktığında dosyaların bağlantıları
+saklanır. Dosyaların asılları yerlerinde kalır ve depo uygulama yeniden
+başlatıldığında korunur. Aynı dosya tekrar eklenmez.
+
+Bir dosyayı geri almak için kartın ikonunu dışarı sürükleyip Finder’a veya dosya
+kabul eden başka bir uygulamaya bırak. Hedef kabul ederse kart depodan kalkar;
+iptal edilen veya reddedilen sürüklemede kalır. Finder’a bırakmak dosyayı
+kopyalar, asıl dosyayı taşımaz. Kartın üstündeki çöp kutusu da yalnızca depo kaydını kaldırır.
+Silinen ya da erişimi kaybolan dosyalar depoda erişilemiyor olarak gösterilir.
+
+Depo yerel dosya ve klasörleri destekler; metin, web bağlantısı ve henüz dosyaya
+dönüşmemiş sürükleme içerikleri (örneğin Mail ekleri için file promise) desteklenmez.
+Kayıtlar uygulamanın Application Support dizininde `AgentNotch/FileShelf.json`
+dosyasında salt okunur security-scoped bookmark olarak tutulur.
 
 ## Klasör yapısı
 

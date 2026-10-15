@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class IslandController: NSObject {
     private let state = IslandState()
+    private let shelf = FileShelfStore()
     private let settings: NotchSettings
     private var subscriptions = Set<AnyCancellable>()
     private let panel: IslandPanel
@@ -17,8 +18,13 @@ final class IslandController: NSObject {
     private var localMouseMonitor: Any?
     private var pointerInside = false
     private var transition = IslandTransition()
+    private var pageMotion = IslandMotion()
+    private var dragHintMotion = IslandMotion()
     private var displayLink: CADisplayLink?
     private var lastFrameTime: CFTimeInterval = 0
+    private var dragTimer: Timer?
+    private var dragPasteboardBaseline = 0
+    private var releasePending: Task<Void, Never>?
 
     init(settings: NotchSettings, openSettings: @escaping () -> Void) {
         self.settings = settings
@@ -31,6 +37,36 @@ final class IslandController: NSObject {
         super.init()
         state.openSettings = openSettings
         state.editingChanged = { [weak self] in self?.editingChanged() }
+        state.pageChanged = { [weak self] in
+            guard let self else { return }
+            if self.state.page == .files { self.shelf.refresh() }
+            self.animatePageChange()
+            self.pointerMoved()
+        }
+        state.dropTargetChanged = { [weak self] targeted in
+            guard let self else { return }
+            guard self.state.isDropTargeted != targeted else { return }
+            if targeted {
+                self.state.beginIncomingDrag()
+                self.pendingHover?.cancel()
+                self.setExpanded(true)
+            }
+            self.state.isDropTargeted = targeted
+        }
+        state.filesDropped = { [weak self] urls in
+            guard let self else { return false }
+            let accepted = self.shelf.add(urls)
+            self.finishIncomingDrag(accepted: accepted)
+            return accepted
+        }
+        state.outgoingChanged = { [weak self] dragging in
+            guard let self else { return }
+            self.state.isOutgoingDrag = dragging
+            if dragging { self.setFileDragAvailable(false) }
+            self.pendingHover?.cancel()
+            if dragging { self.setExpanded(true) }
+            else { self.hover(self.hoverFrame.contains(NSEvent.mouseLocation)) }
+        }
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.colorSpace = .sRGB
@@ -46,7 +82,7 @@ final class IslandController: NSObject {
         panel.animationBehavior = .none
 
         positionOnScreen()
-        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings))
+        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf))
         // The controller owns the panel's size. SwiftUI's automatic window
         // min/max constraints otherwise feed animated layout back into AppKit.
         view.sizingOptions = []
@@ -92,6 +128,12 @@ final class IslandController: NSObject {
         state.progress = 0
         state.contentProgress = 0
         state.expanded = false
+        state.restorePageAfterCollapse()
+        state.hasFileDrag = false
+        state.dragHintProgress = 0
+        dragHintMotion = IslandMotion()
+        pageMotion = IslandMotion(progress: pageTarget)
+        state.pageProgress = CGFloat(pageTarget)
         pointerInside = false
         positionOnScreen()
         startMouseMonitoring()
@@ -101,12 +143,16 @@ final class IslandController: NSObject {
 
     func hide() {
         panel.orderOut(nil)
+        setFileDragAvailable(false)
+        releasePending?.cancel()
+        state.endIncomingDrag()
         state.isEditingWidgets = false
         pendingHover?.cancel()
         stopAnimation()
         state.expanded = false
         state.progress = 0
         state.contentProgress = 0
+        state.restorePageAfterCollapse()
         transition = IslandTransition()
         pointerInside = false
         stopMouseMonitoring()
@@ -114,12 +160,13 @@ final class IslandController: NSObject {
 
     private func startMouseMonitoring() {
         guard globalMouseMonitor == nil, localMouseMonitor == nil else { return }
-        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in
-            self?.pointerMoved()
+        dragPasteboardBaseline = NSPasteboard(name: .drag).changeCount
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDragged]
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] event in
+            self?.mouseEvent(event)
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
-            self?.pointerMoved()
+            self?.mouseEvent(event)
             return event
         }
     }
@@ -129,6 +176,8 @@ final class IslandController: NSObject {
         if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
         globalMouseMonitor = nil
         localMouseMonitor = nil
+        dragTimer?.invalidate()
+        dragTimer = nil
     }
 
     private func positionOnScreen() {
@@ -157,6 +206,7 @@ final class IslandController: NSObject {
         state.layout = WidgetDrawerLayout(widgets: widgets.map(\.descriptor), maximumWidth: screen.frame.width - 56,
                                           minimumWidth: WidgetDrawerLayout.minimumWidth(collapsedWidth: state.collapsedWidth),
                                           maximumHeight: maximumHeight, editing: state.isEditingWidgets)
+        state.shelfHeight = min(240, maximumHeight)
         let size = state.canvasSize
         // The native window never resizes during hover. Only the black surface
         // inside this transparent canvas changes, so it cannot clip the spring.
@@ -216,18 +266,89 @@ final class IslandController: NSObject {
         if inside != pointerInside { hover(inside) }
     }
 
+    private func mouseEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            dragPasteboardBaseline = NSPasteboard(name: .drag).changeCount
+            releasePending?.cancel()
+            setFileDragAvailable(false)
+            startDragTimer()
+        } else if event.type == .leftMouseDragged {
+            startDragTimer()
+            inspectDrag()
+        }
+        pointerMoved()
+    }
+
+    private func startDragTimer() {
+        guard dragTimer == nil else { return }
+        // AppKit can enter a native tracking loop that suppresses mouse monitors.
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.inspectDrag() }
+        }
+        dragTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func inspectDrag() {
+        guard panel.isVisible else { return }
+        guard NSEvent.pressedMouseButtons & 1 != 0 else {
+            setFileDragAvailable(false)
+            dragTimer?.invalidate()
+            dragTimer = nil
+            // Let the destination finish its drop callback before restoring a tab.
+            releasePending?.cancel()
+            releasePending = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(100))
+                guard let self, !Task.isCancelled else { return }
+                self.finishIncomingDrag()
+                self.dragPasteboardBaseline = NSPasteboard(name: .drag).changeCount
+            }
+            return
+        }
+        guard !state.isOutgoingDrag else {
+            setFileDragAvailable(false)
+            return
+        }
+        let pasteboard = NSPasteboard(name: .drag)
+        // The global hint only needs advertised types. Reading file URL payloads
+        // before a drop repeatedly requests sandbox access from other apps.
+        guard pasteboard.changeCount != dragPasteboardBaseline,
+              !FileShelfDragTypes.isShelfDrag(pasteboard),
+              pasteboard.types?.contains(.fileURL) == true else {
+            setFileDragAvailable(false)
+            if state.isIncomingDrag { finishIncomingDrag() }
+            return
+        }
+        setFileDragAvailable(true)
+        let nearby = hoverFrame.insetBy(dx: -48, dy: -48).contains(NSEvent.mouseLocation)
+        if nearby {
+            state.beginIncomingDrag()
+            pendingHover?.cancel()
+            setExpanded(true)
+        } else if state.isIncomingDrag && !state.isDropTargeted {
+            finishIncomingDrag()
+        }
+        pointerMoved()
+    }
+
+    private func finishIncomingDrag(accepted: Bool = false) {
+        guard state.isIncomingDrag || accepted else { return }
+        state.endIncomingDrag(accepted: accepted)
+        hover(hoverFrame.contains(NSEvent.mouseLocation))
+    }
+
     private func hover(_ inside: Bool) {
         guard panel.isVisible else { return }
         pointerInside = inside
         pendingHover?.cancel()
-        guard !state.isEditingWidgets else { return }
+        guard !state.holdsOpen else { return }
         let delay = inside ? settings.openDelay : settings.closeDelay
         pendingHover = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(delay))
             } catch { return }
             guard let self, !Task.isCancelled, self.panel.isVisible,
-                  !self.state.isEditingWidgets else { return }
+                  !self.state.holdsOpen else { return }
             if !inside {
                 // A resize may generate an exit event while the pointer is still inside.
                 guard !self.hoverFrame.contains(NSEvent.mouseLocation) else { return }
@@ -244,6 +365,36 @@ final class IslandController: NSObject {
             finishTransition()
             return
         }
+        startAnimation()
+    }
+
+    private var pageTarget: Double { state.page == .files ? 1 : 0 }
+    private var dragHintTarget: Double { state.showsDragHint ? 1 : 0 }
+
+    private func setFileDragAvailable(_ available: Bool) {
+        guard state.hasFileDrag != available else { return }
+        state.hasFileDrag = available
+        guard panel.isVisible, settings.animationsEnabled,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            dragHintMotion = IslandMotion(progress: dragHintTarget)
+            state.dragHintProgress = CGFloat(dragHintTarget)
+            return
+        }
+        startAnimation()
+    }
+
+    private func animatePageChange() {
+        guard panel.isVisible, state.progress > 0, settings.animationsEnabled,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            pageMotion = IslandMotion(progress: pageTarget)
+            state.pageProgress = CGFloat(pageTarget)
+            return
+        }
+        // Retarget the existing spring so rapid tab changes remain continuous.
+        startAnimation()
+    }
+
+    private func startAnimation() {
         guard displayLink == nil else { return }
         lastFrameTime = CACurrentMediaTime()
         let link = panel.displayLink(target: self, selector: #selector(animateFrame(_:)))
@@ -256,7 +407,11 @@ final class IslandController: NSObject {
         let elapsed = now - lastFrameTime
         lastFrameTime = now
         transition.advance(expanded: state.expanded, elapsed: elapsed, speed: settings.animationSpeed)
-        if transition.isSettled(expanded: state.expanded) {
+        pageMotion.advance(toward: pageTarget, elapsed: elapsed * settings.animationSpeed, frequency: 26)
+        dragHintMotion.advance(toward: dragHintTarget, elapsed: elapsed * settings.animationSpeed, frequency: 40)
+        if transition.isSettled(expanded: state.expanded),
+           pageMotion.progress == pageTarget, pageMotion.velocity == 0,
+           dragHintMotion.progress == dragHintTarget, dragHintMotion.velocity == 0 {
             stopAnimation()
         }
         var transaction = Transaction()
@@ -264,8 +419,11 @@ final class IslandController: NSObject {
         withTransaction(transaction) {
             state.progress = CGFloat(max(0, min(1, transition.surface.progress)))
             state.contentProgress = CGFloat(max(0, min(1, transition.content.progress)))
+            state.pageProgress = CGFloat(max(0, min(1, pageMotion.progress)))
+            state.dragHintProgress = CGFloat(max(0, min(1, dragHintMotion.progress)))
+            state.restorePageAfterCollapse()
         }
-        updateMousePassthrough()
+        pointerMoved()
     }
 
     private func stopAnimation() {
@@ -276,8 +434,13 @@ final class IslandController: NSObject {
     private func finishTransition() {
         stopAnimation()
         transition = IslandTransition(expanded: state.expanded)
+        pageMotion = IslandMotion(progress: pageTarget)
+        dragHintMotion = IslandMotion(progress: dragHintTarget)
         state.progress = CGFloat(transition.surface.progress)
         state.contentProgress = CGFloat(transition.content.progress)
+        state.pageProgress = CGFloat(pageTarget)
+        state.dragHintProgress = CGFloat(dragHintTarget)
+        state.restorePageAfterCollapse()
         updateMousePassthrough()
     }
 }

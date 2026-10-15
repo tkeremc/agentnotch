@@ -33,6 +33,6 @@ xcrun swiftc -parse-as-library -sdk "$sdk_path" -target "$target" \
     -module-cache-path "$test_build/module-cache" \
     -I "$test_build" -L "$test_build" -lAgentNotch \
     -Xlinker -rpath -Xlinker "$test_build" \
-    "$source_root/Tests/WidgetTests.swift" -o "$test_build/WidgetTests"
+    "$source_root/Tests/"*.swift -o "$test_build/WidgetTests"
 
 "$test_build/WidgetTests"

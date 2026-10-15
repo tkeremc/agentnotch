@@ -21,8 +21,12 @@ struct WidgetTests {
             ("first run, empty list and persistence", persistence),
             ("stored identifiers are sanitized", storedIdentifiers),
             ("single-widget reorder is safe", reordering),
-            ("Turkish clock follows supplied timezone", clock)
-        ]
+            ("Turkish clock follows supplied timezone", clock),
+            ("file drag switches page and restores on cancel", fileDragState),
+            ("page transition geometry stays continuous", pageGeometry),
+            ("file drag hint stays compact until approach", fileDragHint),
+            ("cancelled file drag restores page only after collapse", deferredDragRestoration)
+        ] + FileShelfTests.cases + FileShelfDragTests.cases
         var failures = 0
         for (name, test) in tests {
             do {
@@ -165,6 +169,146 @@ struct WidgetTests {
         state.isEditingWidgets = true
         state.isEditingWidgets = false
         try expect(changes == 2, "controller callback fires only for actual editing transitions")
+    }
+
+    private static func fileDragState() throws {
+        let state = IslandState()
+        state.isEditingWidgets = true
+        state.beginIncomingDrag()
+        try expect(state.page == .files && state.holdsOpen, "file drag selects depot and pins panel")
+        try expect(!state.isEditingWidgets, "file page ends widget editing")
+        state.beginIncomingDrag()
+        state.isDropTargeted = true
+        state.endIncomingDrag()
+        try expect(state.page == .home && !state.holdsOpen && !state.isDropTargeted,
+                   "cancel restores page and clears drag state")
+        state.beginIncomingDrag()
+        state.endIncomingDrag(accepted: true)
+        try expect(state.page == .files && !state.isIncomingDrag, "accepted drop keeps depot selected")
+        state.beginIncomingDrag()
+        state.endIncomingDrag()
+        try expect(state.page == .files, "depot was already selected before cancelled drag")
+        state.page = .home
+        state.isOutgoingDrag = true
+        state.beginIncomingDrag()
+        try expect(state.page == .home && !state.isIncomingDrag, "own outgoing drag cannot switch pages")
+        state.layout = layout([], minimumWidth: 720)
+        state.shelfHeight = 400
+        try expect(state.canvasSize.width >= 744 && state.canvasSize.height >= state.topBand + 412,
+                   "native canvas accommodates both pages")
+    }
+
+    private static func pageGeometry() throws {
+        let state = IslandState()
+        state.progress = 1
+        let homeWidth = state.layout.width
+        let homeHeight = state.layout.contentHeight
+        state.page = .files
+        try expect(state.surfaceWidth == homeWidth && state.contentHeight == homeHeight,
+                   "selecting a page must not jump geometry ahead of the animation")
+        state.pageProgress = 0.5
+        try expect(state.surfaceWidth == homeWidth && state.shelfWidth == homeWidth,
+                   "both pages keep home width throughout the transition")
+        try expect(state.contentHeight == (homeHeight + 240) / 2,
+                   "height interpolates between fixed page layouts")
+        try expect(state.homePageOpacity == 0 && state.filesPageOpacity == 0,
+                   "page content fades through background without ghosting two pages together")
+        for frame in 0...60 {
+            state.pageProgress = CGFloat(frame) / 60
+            try expect(state.homePageOpacity == 0 || state.filesPageOpacity == 0,
+                       "only one page is readable at every transition frame")
+        }
+        state.pageProgress = 1
+        try expect(state.surfaceWidth == homeWidth && state.contentHeight == 240,
+                   "depot keeps home width and settles to the short height")
+        state.layout = layout([], minimumWidth: 500)
+        try expect(state.expandedWidth == state.layout.width && state.shelfWidth == state.layout.width,
+                   "depot automatically follows changes to home layout width")
+        var motion = IslandMotion()
+        for _ in 0..<5 { motion.advance(toward: 1, elapsed: 1.0 / 60, frequency: 34) }
+        let before = motion.progress
+        motion.advance(toward: 0, elapsed: 0, frequency: 34)
+        try expect(abs(motion.progress - before) < 0.000001,
+                   "rapid page reversal preserves its current position")
+        for _ in 0..<120 { motion.advance(toward: 0, elapsed: 1.0 / 60, frequency: 34) }
+        try expect(motion.progress == 0 && motion.velocity == 0, "reversed transition settles at home")
+    }
+
+    private static func fileDragHint() throws {
+        let state = IslandState()
+        state.hasFileDrag = true
+        state.dragHintProgress = 1
+        try expect(state.showsDragHint && !state.holdsOpen && state.page == .home,
+                   "a distant file drag shows only a hint without opening or switching pages")
+        try expect(state.surfaceHeight == state.topBand + 26 - state.collapsedBottomInset,
+                   "hint sits just below the hardware notch")
+        try expect(state.surfaceWidth == state.collapsedWidth + 24,
+                   "hint grows the collapsed notch only slightly")
+        state.beginIncomingDrag()
+        state.expanded = true
+        state.progress = 1
+        try expect(!state.showsDragHint && state.page == .files && state.holdsOpen,
+                   "approach replaces hint with the expanded depot")
+        try expect(state.surfaceWidth == state.layout.width
+                   && state.surfaceHeight == state.topBand + state.contentHeight,
+                   "a fading hint adds no extra geometry to the open panel")
+        state.endIncomingDrag()
+        state.expanded = false
+        state.isOutgoingDrag = true
+        try expect(!state.showsDragHint, "outgoing shelf drags must not advertise incoming storage")
+        state.isOutgoingDrag = false
+        state.hasFileDrag = false
+        state.dragHintProgress = 0
+        state.progress = 0
+        try expect(!state.showsDragHint && state.surfaceWidth == state.collapsedWidth,
+                   "release restores the original collapsed notch")
+    }
+
+    private static func deferredDragRestoration() throws {
+        let state = IslandState()
+        state.expanded = true
+        state.progress = 1
+        state.contentProgress = 1
+        state.beginIncomingDrag()
+        state.endIncomingDrag()
+        try expect(state.page == .files && !state.holdsOpen,
+                   "retreat keeps depot visible while allowing panel to close")
+        state.expanded = false
+        state.progress = 0.4
+        state.contentProgress = 0.2
+        state.restorePageAfterCollapse()
+        try expect(state.page == .files, "home must not flash during the closing animation")
+        state.progress = 0
+        state.restorePageAfterCollapse()
+        try expect(state.page == .files, "restoration also waits for content to disappear")
+        state.contentProgress = 0
+        state.restorePageAfterCollapse()
+        try expect(state.page == .home, "previous page is restored only when hidden")
+
+        state.expanded = true
+        state.progress = 1
+        state.contentProgress = 1
+        state.beginIncomingDrag()
+        state.endIncomingDrag()
+        state.beginIncomingDrag()
+        state.endIncomingDrag()
+        state.expanded = false
+        state.progress = 0
+        state.contentProgress = 0
+        state.restorePageAfterCollapse()
+        try expect(state.page == .home, "rapid retreat and reentry preserve the original page")
+
+        state.expanded = true
+        state.progress = 1
+        state.contentProgress = 1
+        state.beginIncomingDrag()
+        state.endIncomingDrag()
+        state.selectPage(.files)
+        state.expanded = false
+        state.progress = 0
+        state.contentProgress = 0
+        state.restorePageAfterCollapse()
+        try expect(state.page == .files, "explicit tab choice cancels queued restoration")
     }
 
     private static func withDefaults(_ body: (UserDefaults) throws -> Void) throws {
