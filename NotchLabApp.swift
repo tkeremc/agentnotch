@@ -2,11 +2,11 @@ import AppKit
 import SwiftUI
 
 @main
-struct NotchLabApp: App {
+struct LeagentNotchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        MenuBarExtra("NotchLab", systemImage: "capsule.tophalf.filled") {
+        MenuBarExtra("leagent notch", image: "NotchMark") {
             NotchMenu(settings: delegate.settings, openSettings: delegate.showSettings)
         }
     }
@@ -17,11 +17,11 @@ private struct NotchMenu: View {
     let openSettings: () -> Void
 
     var body: some View {
-        Toggle("NotchLab etkin", isOn: $settings.isEnabled)
+        Toggle("leagent notch etkin", isOn: $settings.isEnabled)
         Button("Ayarlar…", action: openSettings)
             .keyboardShortcut(",")
         Divider()
-        Button("NotchLab’den çık") { NSApp.terminate(nil) }
+        Button("leagent notch’tan çık") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
     }
 }
@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = NSWindow(contentViewController: NSHostingController(
                 rootView: NotchSettingsView(settings: settings)
             ))
-            window.title = "NotchLab Ayarları"
+            window.title = "leagent notch Ayarları"
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
             window.setContentSize(NSSize(width: 540, height: 720))
@@ -160,11 +160,14 @@ private struct NotchSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "capsule.tophalf.filled")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.secondary)
+                Image("NotchMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 32)
+                    .foregroundStyle(.primary)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("NotchLab").font(.title2.bold())
+                    Text("leagent notch").font(.title2.bold())
                     Text("Adanı kendine göre ayarla.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -174,7 +177,7 @@ private struct NotchSettingsView: View {
 
             Form {
                 Section {
-                    Toggle("NotchLab’i etkinleştir", isOn: $settings.isEnabled)
+                    Toggle("leagent notch’u etkinleştir", isOn: $settings.isEnabled)
                 } header: {
                     Text("Genel")
                 } footer: {
