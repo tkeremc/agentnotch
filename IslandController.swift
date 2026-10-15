@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import QuartzCore
 import SwiftUI
 
@@ -11,12 +12,11 @@ final class IslandState: ObservableObject {
     @Published var collapsedBottomInset: CGFloat = 0
     @Published var collapsedWidth: CGFloat = 200
     @Published var expandedWidth: CGFloat = 420
-    @Published var pinned = false
-
-    var pinChanged: (() -> Void)?
+    let contentHeight: CGFloat = 132
+    var openSettings: (() -> Void)?
     var surfaceWidth: CGFloat { collapsedWidth + (expandedWidth - collapsedWidth) * progress }
-    var surfaceHeight: CGFloat { topBand + 164 * progress - collapsedBottomInset * (1 - progress) }
-    var canvasSize: NSSize { NSSize(width: expandedWidth + 24, height: topBand + 176) }
+    var surfaceHeight: CGFloat { topBand + contentHeight * progress - collapsedBottomInset * (1 - progress) }
+    var canvasSize: NSSize { NSSize(width: expandedWidth + 24, height: topBand + contentHeight + 12) }
 }
 
 // A critically damped spring settles without bouncing past the notch edges.
@@ -38,8 +38,8 @@ struct IslandMotion {
     }
 }
 
-// Geometry finishes before content appears. Closing reverses that order;
-// both channels share one display link and remain continuous on reversal.
+// Geometry finishes before content reveals from top to bottom. Closing hides
+// content and shrinks the surface together; both remain continuous on reversal.
 struct IslandTransition {
     var surface = IslandMotion()
     var content = IslandMotion()
@@ -49,16 +49,15 @@ struct IslandTransition {
         content = IslandMotion(progress: expanded ? 1 : 0)
     }
 
-    mutating func advance(expanded: Bool, elapsed: Double) {
+    mutating func advance(expanded: Bool, elapsed: Double, speed: Double = 1) {
+        let elapsed = elapsed * speed
         if expanded {
-            surface.advance(toward: 1, elapsed: elapsed, frequency: 22)
+            surface.advance(toward: 1, elapsed: elapsed, frequency: 44)
             content.advance(toward: surface.progress == 1 ? 1 : 0,
-                            elapsed: elapsed, frequency: 30)
+                            elapsed: elapsed, frequency: 60)
         } else {
-            content.advance(toward: 0, elapsed: elapsed, frequency: 38)
-            if content.progress == 0 {
-                surface.advance(toward: 0, elapsed: elapsed, frequency: 24)
-            }
+            content.advance(toward: 0, elapsed: elapsed, frequency: 76)
+            surface.advance(toward: 0, elapsed: elapsed, frequency: 48)
         }
     }
 
@@ -99,6 +98,8 @@ final class HoverHostingView: NSHostingView<IslandView> {
 @MainActor
 final class IslandController: NSObject {
     private let state = IslandState()
+    private let settings: NotchSettings
+    private var subscriptions = Set<AnyCancellable>()
     private let panel: IslandPanel
     private var screen: NSScreen?
     private var topInset: CGFloat = 0
@@ -111,7 +112,8 @@ final class IslandController: NSObject {
     private var displayLink: CADisplayLink?
     private var lastFrameTime: CFTimeInterval = 0
 
-    override init() {
+    init(settings: NotchSettings, openSettings: @escaping () -> Void) {
+        self.settings = settings
         panel = IslandPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -119,6 +121,7 @@ final class IslandController: NSObject {
             defer: false
         )
         super.init()
+        state.openSettings = openSettings
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.colorSpace = .sRGB
@@ -134,14 +137,16 @@ final class IslandController: NSObject {
         panel.animationBehavior = .none
 
         positionOnScreen()
-        let view = HoverHostingView(rootView: IslandView(state: state))
+        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings))
         // The controller owns the panel's size. SwiftUI's automatic window
         // min/max constraints otherwise feed animated layout back into AppKit.
         view.sizingOptions = []
         view.autoresizingMask = [.width, .height]
         view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.clear.cgColor
-        view.hoverChanged = { [weak self] inside in self?.hover(inside) }
+        // Native tracking describes the rectangular canvas, while activation
+        // also includes the physical notch and the screen's top edge.
+        view.hoverChanged = { [weak self] _ in self?.pointerMoved() }
         // A hosting view used directly as window content also participates in
         // SwiftUI's animated window sizing. A plain AppKit container keeps that
         // mechanism separate from the controller's explicit frame animation.
@@ -151,18 +156,13 @@ final class IslandController: NSObject {
         view.frame = container.bounds
         container.addSubview(view)
         panel.contentView = container
-        state.pinChanged = { [weak self] in
-            guard let self, !self.state.pinned, !self.pointerInside else { return }
-            self.hover(false)
-        }
-        let mouseEvents: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self] _ in
-            self?.pointerMoved()
-        }
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseEvents) { [weak self] event in
-            self?.pointerMoved()
-            return event
-        }
+        settings.$isEnabled.removeDuplicates().dropFirst().sink { [weak self] enabled in
+            if enabled { self?.show() } else { self?.hide() }
+        }.store(in: &subscriptions)
+        settings.$animationsEnabled.dropFirst().sink { [weak self] enabled in
+            guard let self, !enabled else { return }
+            self.finishTransition()
+        }.store(in: &subscriptions)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -179,9 +179,9 @@ final class IslandController: NSObject {
         state.progress = 0
         state.contentProgress = 0
         state.expanded = false
-        state.pinned = false
         pointerInside = false
         positionOnScreen()
+        startMouseMonitoring()
         panel.orderFrontRegardless()
         pointerMoved()
     }
@@ -189,9 +189,32 @@ final class IslandController: NSObject {
     func hide() {
         pendingHover?.cancel()
         stopAnimation()
-        state.pinned = false
         state.expanded = false
+        state.progress = 0
+        state.contentProgress = 0
+        transition = IslandTransition()
+        pointerInside = false
         panel.orderOut(nil)
+        stopMouseMonitoring()
+    }
+
+    private func startMouseMonitoring() {
+        guard globalMouseMonitor == nil, localMouseMonitor == nil else { return }
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged]
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in
+            self?.pointerMoved()
+        }
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
+            self?.pointerMoved()
+            return event
+        }
+    }
+
+    private func stopMouseMonitoring() {
+        if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
+        globalMouseMonitor = nil
+        localMouseMonitor = nil
     }
 
     private func positionOnScreen() {
@@ -230,6 +253,22 @@ final class IslandController: NSObject {
                width: state.surfaceWidth, height: state.surfaceHeight)
     }
 
+    private var hoverFrame: NSRect {
+        guard let screen else { return surfaceFrame }
+        // The pointer can stop at the hardware notch's lower edge or exactly
+        // on maxY, which NSRect.contains normally excludes. Add a small buffer
+        // around the notch and extend through the upper screen boundary.
+        let activationWidth = state.collapsedWidth + 64
+        let activationBottom = panel.frame.maxY - state.topBand - 10
+        let activation = NSRect(
+            x: screen.frame.midX - activationWidth / 2,
+            y: activationBottom,
+            width: activationWidth,
+            height: screen.frame.maxY - activationBottom + 1
+        )
+        return surfaceFrame.union(activation)
+    }
+
     private func updateMousePassthrough() {
         // Transparent canvas space must never block the application below it.
         panel.ignoresMouseEvents = !surfaceFrame.contains(NSEvent.mouseLocation)
@@ -237,23 +276,24 @@ final class IslandController: NSObject {
 
     private func pointerMoved() {
         guard panel.isVisible else { return }
-        let inside = surfaceFrame.contains(NSEvent.mouseLocation)
+        let inside = hoverFrame.contains(NSEvent.mouseLocation)
         updateMousePassthrough()
         if inside != pointerInside { hover(inside) }
     }
 
     private func hover(_ inside: Bool) {
+        guard panel.isVisible else { return }
         pointerInside = inside
         pendingHover?.cancel()
+        let delay = inside ? settings.openDelay : settings.closeDelay
         pendingHover = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: .milliseconds(inside ? 120 : 320))
+                try await Task.sleep(for: .milliseconds(delay))
             } catch { return }
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.panel.isVisible else { return }
             if !inside {
-                guard !self.state.pinned else { return }
                 // A resize may generate an exit event while the pointer is still inside.
-                guard !self.surfaceFrame.contains(NSEvent.mouseLocation) else { return }
+                guard !self.hoverFrame.contains(NSEvent.mouseLocation) else { return }
             }
             self.setExpanded(inside)
         }
@@ -263,12 +303,8 @@ final class IslandController: NSObject {
         guard state.expanded != expanded else { return }
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         state.expanded = expanded
-        if reduceMotion {
-            stopAnimation()
-            transition = IslandTransition(expanded: expanded)
-            state.progress = CGFloat(transition.surface.progress)
-            state.contentProgress = CGFloat(transition.content.progress)
-            updateMousePassthrough()
+        if reduceMotion || !settings.animationsEnabled {
+            finishTransition()
             return
         }
         guard displayLink == nil else { return }
@@ -282,7 +318,7 @@ final class IslandController: NSObject {
         let now = CACurrentMediaTime()
         let elapsed = now - lastFrameTime
         lastFrameTime = now
-        transition.advance(expanded: state.expanded, elapsed: elapsed)
+        transition.advance(expanded: state.expanded, elapsed: elapsed, speed: settings.animationSpeed)
         if transition.isSettled(expanded: state.expanded) {
             stopAnimation()
         }
@@ -298,5 +334,13 @@ final class IslandController: NSObject {
     private func stopAnimation() {
         displayLink?.invalidate()
         displayLink = nil
+    }
+
+    private func finishTransition() {
+        stopAnimation()
+        transition = IslandTransition(expanded: state.expanded)
+        state.progress = CGFloat(transition.surface.progress)
+        state.contentProgress = CGFloat(transition.content.progress)
+        updateMousePassthrough()
     }
 }
