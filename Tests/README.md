@@ -6,7 +6,7 @@ Run on macOS with Xcode's command-line tools:
 bash Tests/run.sh
 ```
 
-The runner compiles all three production Swift files as a testable dynamic
+The runner compiles all production Swift files under `Sources/` as a testable dynamic
 library and tests their actual internal types. It does not copy source into
 fixtures, start the app, or change the Xcode project. Build products and module
 caches use a temporary directory removed on exit. Persistence tests use unique

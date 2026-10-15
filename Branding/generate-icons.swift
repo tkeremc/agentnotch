@@ -4,7 +4,7 @@ import AppKit
 
 let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let branding = root.appendingPathComponent("Branding")
-let catalog = root.appendingPathComponent("Assets.xcassets")
+let catalog = root.appendingPathComponent("Resources/Assets.xcassets")
 let appIcon = catalog.appendingPathComponent("AppIcon.appiconset")
 let markSet = catalog.appendingPathComponent("NotchMark.imageset")
 for directory in [branding, catalog, appIcon, markSet] {

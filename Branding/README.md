@@ -4,8 +4,8 @@ Tek beyaz çentik, düz koyu zemin. Yazı, renkli vurgu ve efekt içermez.
 
 - `app-icon.svg`: düzenlenebilir 1024 × 1024 uygulama ikonu.
 - `notch-mark.svg`: şeffaf zeminli beyaz simge.
-- `../Assets.xcassets/AppIcon.appiconset`: macOS için 16–1024 piksel PNG dosyaları.
-- `../Assets.xcassets/NotchMark.imageset`: menü çubuğu ve ayarlar için vektörel PDF. Template olarak sistemin açık/koyu görünümüne uyarlanır.
+- `../Resources/Assets.xcassets/AppIcon.appiconset`: macOS için 16–1024 piksel PNG dosyaları.
+- `../Resources/Assets.xcassets/NotchMark.imageset`: menü çubuğu ve ayarlar için vektörel PDF. Template olarak sistemin açık/koyu görünümüne uyarlanır.
 
 Kaynak SVG ve native asset dosyalarını aynı geometriden yeniden üretmek için kaynak klasöründe:
 
