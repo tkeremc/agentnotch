@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 struct WidgetDrawerView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var settings: NotchSettings
-    @State private var draggedWidget: WidgetKind?
+    @ObservedObject var media: NowPlayingStore
     private static let dragType = UTType(exportedAs: "com.local.NotchLab.widget")
 
     var body: some View {
@@ -24,7 +24,7 @@ struct WidgetDrawerView: View {
         .frame(height: state.layout.viewportHeight)
         .padding(.top, WidgetDrawerLayout.topPadding)
         .foregroundStyle(settings.foregroundColor)
-        .onChange(of: state.isEditingWidgets) { _, _ in draggedWidget = nil }
+        .onChange(of: state.isEditingWidgets) { _, _ in state.draggedWidget = nil }
     }
 
     private var widgetGrid: some View {
@@ -49,7 +49,7 @@ struct WidgetDrawerView: View {
                     .frame(height: 28)
             }
             .onDrag {
-                draggedWidget = widget
+                state.draggedWidget = widget
                 let provider = NSItemProvider()
                 provider.registerDataRepresentation(forTypeIdentifier: Self.dragType.identifier,
                                                     visibility: .ownProcess) { completion in
@@ -59,10 +59,10 @@ struct WidgetDrawerView: View {
                 return provider
             }
             .onDrop(of: [Self.dragType], isTargeted: nil) { providers in
-                guard !providers.isEmpty, let source = draggedWidget,
+                guard !providers.isEmpty, let source = state.draggedWidget,
                       let target = settings.widgets.firstIndex(of: widget) else { return false }
                 settings.moveWidget(source, to: target)
-                draggedWidget = nil
+                state.draggedWidget = nil
                 return true
             }
         } else {
@@ -92,6 +92,23 @@ struct WidgetDrawerView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 ClockWidgetView(settings: settings, date: context.date,
                                 animates: state.expanded && !state.isEditingWidgets)
+            }
+        case .media:
+            TimelineView(.animation(minimumInterval: 1, paused: media.snapshot?.isPlaying != true)) { context in
+                let snapshot = media.snapshot
+                MediaWidgetView(settings: settings, hasMedia: snapshot != nil,
+                                isUnavailable: media.availability == .unavailable,
+                                onReconnect: { media.stop(); media.start() },
+                                title: snapshot?.title ?? "", subtitle: snapshot?.artist ?? "",
+                                source: snapshot?.appName ?? "", artwork: snapshot?.artwork,
+                                isPlaying: snapshot?.isPlaying ?? false,
+                                elapsedTime: snapshot?.elapsed(at: context.date) ?? 0,
+                                duration: snapshot?.duration ?? 0,
+                                canControl: media.canControl,
+                                canPrevious: media.canPrevious, canNext: media.canNext,
+                                onPrevious: { media.previousTrack() },
+                                onPlayPause: { media.togglePlayPause() },
+                                onNext: { media.nextTrack() })
             }
         }
     }

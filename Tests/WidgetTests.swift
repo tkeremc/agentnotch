@@ -21,12 +21,14 @@ struct WidgetTests {
             ("first run, empty list and persistence", persistence),
             ("stored identifiers are sanitized", storedIdentifiers),
             ("single-widget reorder is safe", reordering),
+            ("media extends only to the left and clears on expansion", mediaGeometry),
+            ("media widget persists and keeps user selections", mediaPersistence),
             ("Turkish clock follows supplied timezone", clock),
             ("file drag switches page and restores on cancel", fileDragState),
             ("page transition geometry stays continuous", pageGeometry),
             ("file drag hint stays compact until approach", fileDragHint),
             ("cancelled file drag restores page only after collapse", deferredDragRestoration)
-        ] + FileShelfTests.cases + FileShelfDragTests.cases + LocalizationTests.cases
+        ] + FileShelfTests.cases + FileShelfDragTests.cases + LocalizationTests.cases + NowPlayingTests.cases
         var failures = 0
         for (name, test) in tests {
             do {
@@ -321,10 +323,11 @@ struct WidgetTests {
     private static func persistence() throws {
         try withDefaults { defaults in
             let settings = NotchSettings(defaults: defaults)
-            try expect(settings.widgets == [.clock], "first run includes clock")
+            try expect(settings.widgets == [.clock, .media], "first run includes clock and media")
             settings.addWidget(.clock)
-            try expect(settings.widgets == [.clock], "adding same kind must not duplicate")
+            try expect(settings.widgets == [.clock, .media], "adding same kind must not duplicate")
             settings.removeWidget(.clock)
+            settings.removeWidget(.media)
             try expect(defaults.stringArray(forKey: "island.widgets") == [], "removal saves intentional empty list")
             try expect(NotchSettings(defaults: defaults).widgets.isEmpty, "empty list survives reload")
             settings.removeWidget(.clock)
@@ -341,13 +344,14 @@ struct WidgetTests {
             defaults.set(["future-widget"], forKey: "island.widgets")
             try expect(NotchSettings(defaults: defaults).widgets.isEmpty, "valid list with unknown kinds remains empty")
             defaults.set(42, forKey: "island.widgets")
-            try expect(NotchSettings(defaults: defaults).widgets == [.clock], "malformed storage falls back to clock")
+            try expect(NotchSettings(defaults: defaults).widgets == [.clock, .media], "malformed storage falls back to default widgets")
         }
     }
 
     private static func reordering() throws {
         try withDefaults { defaults in
             let settings = NotchSettings(defaults: defaults)
+            settings.removeWidget(.media)
             for destination in [Int.min, -1, 0, 1, Int.max] {
                 settings.moveWidget(.clock, to: destination)
                 try expect(settings.widgets == [.clock], "single item reorder must remain valid")
@@ -355,6 +359,46 @@ struct WidgetTests {
             settings.removeWidget(.clock)
             settings.moveWidget(.clock, to: 0)
             try expect(settings.widgets.isEmpty, "moving absent widget must not add it")
+        }
+    }
+
+    private static func mediaGeometry() throws {
+        let state = IslandState()
+        let rightEdge = state.surfaceWidth / 2 + state.surfaceOffsetX
+        state.hasMedia = true
+        state.mediaProgress = 1
+        try expect(state.surfaceWidth == state.collapsedWidth + 44, "artwork reserves a left wing")
+        try expect(state.surfaceWidth / 2 + state.surfaceOffsetX == rightEdge,
+                   "the physical notch right edge never moves when media appears")
+        for frame in 0...60 {
+            state.progress = CGFloat(frame) / 60
+            let left = state.surfaceOffsetX - state.surfaceWidth / 2
+            let right = state.surfaceOffsetX + state.surfaceWidth / 2
+            try expect(left >= -state.canvasSize.width / 2 && right <= state.canvasSize.width / 2,
+                       "asymmetric surface stays inside the fixed native canvas")
+        }
+        try expect(state.surfaceOffsetX == 0 && state.surfaceWidth == state.expandedWidth,
+                   "fully expanded drawer stays centered with no residual wing")
+        state.progress = 0
+        state.mediaProgress = 0
+        try expect(state.surfaceWidth == state.collapsedWidth && state.surfaceOffsetX == 0,
+                   "removing media restores the original notch geometry")
+    }
+
+    private static func mediaPersistence() throws {
+        try withDefaults { defaults in
+            defaults.set(["clock"], forKey: "island.widgets")
+            let settings = NotchSettings(defaults: defaults)
+            try expect(settings.widgets == [.clock], "existing widget choices remain intact")
+            settings.addWidget(.media)
+            settings.addWidget(.media)
+            try expect(NotchSettings(defaults: defaults).widgets == [.clock, .media],
+                       "media can be added and survives relaunch without duplicates")
+            settings.removeWidget(.media)
+            try expect(NotchSettings(defaults: defaults).widgets == [.clock], "media removal is persistent")
+            let result = layout([WidgetKind.media.descriptor, WidgetKind.clock.descriptor])
+            try expect(result.items[0].frame.width == 414 && result.items[0].widgetHeight == 180,
+                       "media owns a wide card that leaves room for transport controls")
         }
     }
 

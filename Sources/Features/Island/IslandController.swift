@@ -7,6 +7,7 @@ import SwiftUI
 final class IslandController: NSObject {
     private let state = IslandState()
     private let shelf = FileShelfStore()
+    private let media = NowPlayingStore()
     private let settings: NotchSettings
     private var subscriptions = Set<AnyCancellable>()
     private let panel: IslandPanel
@@ -20,6 +21,7 @@ final class IslandController: NSObject {
     private var transition = IslandTransition()
     private var pageMotion = IslandMotion()
     private var dragHintMotion = IslandMotion()
+    private var mediaMotion = IslandMotion()
     private var displayLink: CADisplayLink?
     private var lastFrameTime: CFTimeInterval = 0
     private var dragTimer: Timer?
@@ -36,6 +38,11 @@ final class IslandController: NSObject {
         )
         super.init()
         state.openSettings = openSettings
+        state.openMedia = { [weak self] in
+            guard let self else { return }
+            self.state.selectPage(.home)
+            self.setExpanded(true)
+        }
         state.editingChanged = { [weak self] in self?.editingChanged() }
         state.pageChanged = { [weak self] in
             guard let self else { return }
@@ -82,7 +89,7 @@ final class IslandController: NSObject {
         panel.animationBehavior = .none
 
         positionOnScreen()
-        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf))
+        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf, media: media))
         // The controller owns the panel's size. SwiftUI's automatic window
         // min/max constraints otherwise feed animated layout back into AppKit.
         view.sizingOptions = []
@@ -111,6 +118,11 @@ final class IslandController: NSObject {
         // @Published emits before assignment, so pass the new list explicitly.
         settings.$widgets.dropFirst().sink { [weak self] widgets in
             self?.updateDrawerLayout(widgets: widgets)
+            self?.updateMediaMonitoring(widgets: widgets)
+        }.store(in: &subscriptions)
+        media.$snapshot.sink { [weak self] snapshot in
+            guard let self else { return }
+            self.setMediaAvailable(snapshot != nil && self.settings.widgets.contains(.media))
         }.store(in: &subscriptions)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -138,11 +150,16 @@ final class IslandController: NSObject {
         positionOnScreen()
         startMouseMonitoring()
         panel.orderFrontRegardless()
+        updateMediaMonitoring(widgets: settings.widgets)
         pointerMoved()
     }
 
     func hide() {
         panel.orderOut(nil)
+        media.stop()
+        state.hasMedia = false
+        state.mediaProgress = 0
+        mediaMotion = IslandMotion()
         setFileDragAvailable(false)
         releasePending?.cancel()
         state.endIncomingDrag()
@@ -233,7 +250,7 @@ final class IslandController: NSObject {
     }
 
     private var surfaceFrame: NSRect {
-        NSRect(x: panel.frame.midX - state.surfaceWidth / 2,
+        NSRect(x: panel.frame.midX - state.surfaceWidth / 2 + state.surfaceOffsetX,
                y: panel.frame.maxY - state.surfaceHeight,
                width: state.surfaceWidth, height: state.surfaceHeight)
     }
@@ -370,6 +387,30 @@ final class IslandController: NSObject {
 
     private var pageTarget: Double { state.page == .files ? 1 : 0 }
     private var dragHintTarget: Double { state.showsDragHint ? 1 : 0 }
+    private var mediaTarget: Double { state.hasMedia ? 1 : 0 }
+
+    private func updateMediaMonitoring(widgets: [WidgetKind]) {
+        if panel.isVisible && widgets.contains(.media) {
+            media.start()
+            setMediaAvailable(media.snapshot != nil)
+        } else {
+            media.stop()
+            setMediaAvailable(false)
+        }
+    }
+
+    private func setMediaAvailable(_ available: Bool) {
+        guard state.hasMedia != available else { return }
+        state.hasMedia = available
+        guard panel.isVisible, settings.animationsEnabled,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            mediaMotion = IslandMotion(progress: mediaTarget)
+            state.mediaProgress = CGFloat(mediaTarget)
+            updateMousePassthrough()
+            return
+        }
+        startAnimation()
+    }
 
     private func setFileDragAvailable(_ available: Bool) {
         guard state.hasFileDrag != available else { return }
@@ -409,9 +450,11 @@ final class IslandController: NSObject {
         transition.advance(expanded: state.expanded, elapsed: elapsed, speed: settings.animationSpeed)
         pageMotion.advance(toward: pageTarget, elapsed: elapsed * settings.animationSpeed, frequency: 26)
         dragHintMotion.advance(toward: dragHintTarget, elapsed: elapsed * settings.animationSpeed, frequency: 40)
+        mediaMotion.advance(toward: mediaTarget, elapsed: elapsed * settings.animationSpeed, frequency: 34)
         if transition.isSettled(expanded: state.expanded),
            pageMotion.progress == pageTarget, pageMotion.velocity == 0,
-           dragHintMotion.progress == dragHintTarget, dragHintMotion.velocity == 0 {
+           dragHintMotion.progress == dragHintTarget, dragHintMotion.velocity == 0,
+           mediaMotion.progress == mediaTarget, mediaMotion.velocity == 0 {
             stopAnimation()
         }
         var transaction = Transaction()
@@ -421,6 +464,7 @@ final class IslandController: NSObject {
             state.contentProgress = CGFloat(max(0, min(1, transition.content.progress)))
             state.pageProgress = CGFloat(max(0, min(1, pageMotion.progress)))
             state.dragHintProgress = CGFloat(max(0, min(1, dragHintMotion.progress)))
+            state.mediaProgress = CGFloat(max(0, min(1, mediaMotion.progress)))
             state.restorePageAfterCollapse()
         }
         pointerMoved()
@@ -436,10 +480,12 @@ final class IslandController: NSObject {
         transition = IslandTransition(expanded: state.expanded)
         pageMotion = IslandMotion(progress: pageTarget)
         dragHintMotion = IslandMotion(progress: dragHintTarget)
+        mediaMotion = IslandMotion(progress: mediaTarget)
         state.progress = CGFloat(transition.surface.progress)
         state.contentProgress = CGFloat(transition.content.progress)
         state.pageProgress = CGFloat(pageTarget)
         state.dragHintProgress = CGFloat(dragHintTarget)
+        state.mediaProgress = CGFloat(mediaTarget)
         state.restorePageAfterCollapse()
         updateMousePassthrough()
     }

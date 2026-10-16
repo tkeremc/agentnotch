@@ -30,9 +30,12 @@ final class IslandState: ObservableObject {
     @Published var topBand: CGFloat = 32
     @Published var collapsedBottomInset: CGFloat = 0
     @Published var collapsedWidth: CGFloat = 200
+    @Published var hasMedia = false
+    @Published var mediaProgress: CGFloat = 0
     @Published var layout = WidgetDrawerLayout(widgets: [WidgetKind.clock.descriptor], maximumWidth: 880,
                                               minimumWidth: WidgetDrawerLayout.minimumWidth(collapsedWidth: 200),
                                               maximumHeight: 560, editing: false)
+    @Published var draggedWidget: WidgetKind?
     @Published var isEditingWidgets = false {
         didSet { if oldValue != isEditingWidgets { editingChanged?() } }
     }
@@ -50,6 +53,7 @@ final class IslandState: ObservableObject {
     var filesDropped: (([URL]) -> Bool)?
     var dropTargetChanged: ((Bool) -> Void)?
     var outgoingChanged: ((Bool) -> Void)?
+    var openMedia: (() -> Void)?
 
     func beginIncomingDrag() {
         guard !isOutgoingDrag, !isIncomingDrag else { return }
@@ -85,16 +89,20 @@ final class IslandState: ObservableObject {
     }
     var showsDragHint: Bool { hasFileDrag && !expanded && !isOutgoingDrag }
     static let dragHintHeight: CGFloat = 26
+    static let mediaWingWidth: CGFloat = 44
+    var mediaWingWidth: CGFloat { Self.mediaWingWidth * mediaProgress * (1 - progress) }
+    // Keep the hardware notch's right edge fixed while artwork extends to the left.
+    var surfaceOffsetX: CGFloat { -mediaWingWidth / 2 }
     var surfaceWidth: CGFloat {
         let restingWidth = collapsedWidth + 24 * dragHintProgress
-        return restingWidth + (expandedWidth - restingWidth) * progress
+        return restingWidth + (expandedWidth - restingWidth) * progress + mediaWingWidth
     }
     var surfaceHeight: CGFloat {
         topBand + contentHeight * progress
             + (Self.dragHintHeight * dragHintProgress - collapsedBottomInset) * (1 - progress)
     }
     var canvasSize: NSSize {
-        NSSize(width: max(layout.width, collapsedWidth + 24) + 24,
+        NSSize(width: max(layout.width, collapsedWidth + 24 + 2 * Self.mediaWingWidth) + 24,
                height: topBand + max(layout.contentHeight, shelfHeight, Self.dragHintHeight) + 12)
     }
 }

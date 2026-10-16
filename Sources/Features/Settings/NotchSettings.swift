@@ -54,7 +54,7 @@ final class NotchSettings: ObservableObject {
             var seen = Set<WidgetKind>()
             widgets = saved.compactMap(WidgetKind.init(rawValue:)).filter { seen.insert($0).inserted }
         } else {
-            widgets = [.clock]
+            widgets = [.clock, .media]
         }
         localeObserver = NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)
             .receive(on: RunLoop.main)
@@ -102,7 +102,7 @@ final class NotchSettings: ObservableObject {
         backgroundHex = "000000"
         foregroundHex = "FFFFFF"
         showsSeconds = true
-        widgets = [.clock]
+        widgets = [.clock, .media]
     }
 
     private static func clamped(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {

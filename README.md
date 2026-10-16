@@ -1,7 +1,7 @@
 # agentnotch
 
 SwiftUI ve AppKit ile yazılmış, menü çubuğunda çalışan bir macOS uygulaması.
-Fare çentiğe geldiğinde widget çekmecesi açılır. Şu anda saat widget'ı bulunur.
+Fare çentiğe geldiğinde saat ve müzik çalar widget’larının bulunduğu çekmece açılır.
 Sol üstteki ev ve çekmece ikonları widget’lar ile dosya deposu arasında geçiş yapar.
 macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
 
@@ -15,6 +15,35 @@ macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
 
 Proje yerel geliştirme için ad-hoc imzalanır; geliştirme ekibi seçmek gerekmez.
 Xcode proje dosyası, kaynaklar ve kaynak görseller bu Git deposunun içindedir.
+
+## Müzik çalar
+
+Sistemin Şu An Çalınan bilgisine katılan müzik ve video uygulamalarını otomatik
+izler; Music, Spotify ve tarayıcıların paylaştığı medya oturumları bu kaynağı
+kullanabilir. Çentik kapalıyken kapak için yalnız sola 44 pt genişler. Kapağa
+tıklamak ana sayfayı açar. Açık kartta başlık, sanatçı/kanal, kaynak uygulama,
+süre ve önceki–oynat/duraklat–sonraki düğmeleri bulunur. Medya kaynağı kapak
+paylaşmıyorsa müzik simgesi gösterilir; bilinmeyen süre uydurulmaz.
+
+Yeni kurulumda saat ve müzik çalar birlikte gelir. Kayıtlı widget seçimleri
+korunur; mevcut kurulumda üstteki düzenle düğmesinden **Müzik çalar** eklenebilir.
+Widget kaldırıldığında veya çentik gizlendiğinde medya dinleyicisi kapanır.
+Bağlantı kurulamazsa karttaki **Yeniden bağlan** düğmesi yeniden dener.
+
+Medya katmanı `Sources/Features/Widgets/Media/` içindedir. Xcode, özgün
+`Native/NowPlayingBridge.m` kaynağını derleyip imzalar ve küçük Perl host ile
+uygulamaya paketler; indirme, Homebrew veya kullanıcı kurulumu gerekmez.
+Uygulamanın sandbox’ı açık kalır; yalnız `com.apple.mediaremoted.xpc` ve
+`com.apple.mediacontrol.xpc` servisleri için Mach lookup istisnası tanımlıdır.
+Automation, Accessibility veya ağ izni kullanılmaz.
+
+Sistem genelindeki medya verisi public macOS API’sinde sunulmadığından bu
+özellik private MediaRemote API’sini kullanır. macOS 15.4 ve sonrasındaki
+istemci kısıtı için sistem Perl host tekniği kullanılır; teknik dayanak
+[MediaRemote Adapter](https://github.com/ungive/mediaremote-adapter) projesidir.
+Projeye bu kaynaktan kod veya hazır binary eklenmemiştir. Apple bu API’yi
+ileride değiştirebilir; bu entegrasyon Mac App Store dağıtımına uygun kabul
+edilmemelidir. Sistem Şu An Çalınan bilgisine katılmayan uygulamalar algılanmaz.
 
 ## Dosya deposu
 
@@ -50,6 +79,7 @@ agentnotch/
 │       ├── Settings/             # Kalıcı tercihler ve ayarlar ekranı
 │       └── Widgets/
 │           ├── Clock/            # Saat görünümü ve tarih/saat biçimlendirme
+│           ├── Media/            # Medya oturumu, kapak ve oynatıcı görünümü
 │           ├── Layout/           # Kart konumları ve çekmece boyutları
 │           ├── Models/           # Widget türleri ve boyut tanımları
 │           └── Views/            # Listeleme, düzenleme ve widget kataloğu
@@ -81,6 +111,7 @@ Swift modülüne derlenir; klasörler arasında ayrıca `import` yazman gerekmez
 | Widget kartlarının yerleşimini değiştirmek | `Sources/Features/Widgets/Layout/WidgetDrawerLayout.swift` |
 | Widget ekleme, kaldırma ve sıralama arayüzünü düzenlemek | `Sources/Features/Widgets/Views/WidgetDrawerView.swift` |
 | Saatin görünümünü değiştirmek | `Sources/Features/Widgets/Clock/ClockWidgetView.swift` |
+| Müzik çaları ve medya bağlantısını değiştirmek | `Sources/Features/Widgets/Media/` ve `Native/` |
 | Saat ve tarih biçimini değiştirmek | `Sources/Features/Widgets/Clock/ClockReadout.swift` |
 | Metin çevirmek veya yeni dil eklemek | `Resources/Localizable.xcstrings` ve `Sources/Localization/` |
 

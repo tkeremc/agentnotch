@@ -559,6 +559,240 @@
         }
       }
     },
+    "media.emptyDescription": {
+      "comment": "Media widget empty state description.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play music or a video to see it here."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir müzik veya video aç; burada görünsün."
+          }
+        }
+      }
+    },
+    "media.emptyTitle": {
+      "comment": "Media widget empty state heading.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your next favorite, right here"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sevdiğin içerik, tam burada"
+          }
+        }
+      }
+    },
+    "media.next": {
+      "comment": "Next track transport button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next track"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki parça"
+          }
+        }
+      }
+    },
+    "media.nowPlaying": {
+      "comment": "Small heading when the current media is playing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOW PLAYING"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ŞU AN ÇALIYOR"
+          }
+        }
+      }
+    },
+    "media.openPlayer": {
+      "comment": "Accessibility label on the compact artwork beside the notch.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show media player"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Müzik çaları göster"
+          }
+        }
+      }
+    },
+    "media.pause": {
+      "comment": "Pause transport button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duraklat"
+          }
+        }
+      }
+    },
+    "media.paused": {
+      "comment": "Small heading when the current media is paused.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PAUSED"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DURAKLATILDI"
+          }
+        }
+      }
+    },
+    "media.play": {
+      "comment": "Play transport button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oynat"
+          }
+        }
+      }
+    },
+    "media.playbackProgress": {
+      "comment": "Accessibility playback progress. First argument elapsed time, second total duration.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@"
+          }
+        }
+      }
+    },
+    "media.previous": {
+      "comment": "Previous track transport button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous track"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Önceki parça"
+          }
+        }
+      }
+    },
+    "media.retry": {
+      "comment": "Retry media connection button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden bağlan"
+          }
+        }
+      }
+    },
+    "media.unavailable": {
+      "comment": "Media backend cannot connect to system Now Playing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media connection unavailable"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medya bağlantısı kullanılamıyor"
+          }
+        }
+      }
+    },
+    "media.unknownTitle": {
+      "comment": "Fallback title when the source provides no title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untitled media"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adsız medya"
+          }
+        }
+      }
+    },
     "menu.enabled": {
       "comment": "Menu bar enable toggle.",
       "extractionState": "manual",
@@ -1185,6 +1419,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Başlamak için aşağıdan bir widget ekle."
+          }
+        }
+      }
+    },
+    "widget.media.description": {
+      "comment": "Widget catalog summary for system Now Playing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Music, videos & playback controls"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Müzik, video ve oynatma kontrolleri"
+          }
+        }
+      }
+    },
+    "widget.media.title": {
+      "comment": "Widget catalog title for the system media player.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Media player"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Müzik çalar"
           }
         }
       }

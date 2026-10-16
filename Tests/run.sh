@@ -24,6 +24,11 @@ cat > "$test_build/Localization.bundle/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 
+# Exercise native metadata serialization without opening a media session.
+xcrun clang -fobjc-arc -fblocks -framework AppKit -mmacosx-version-min=14.0 \
+    "$source_root/Tests/NowPlayingBridgeTests.m" -o "$test_build/NowPlayingBridgeTests"
+"$test_build/NowPlayingBridgeTests"
+
 production_sources=()
 while IFS= read -r -d '' source_file; do
     production_sources+=("$source_file")

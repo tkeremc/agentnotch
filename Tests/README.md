@@ -80,3 +80,17 @@ Language manual checks:
   the current supported system language is selected again.
 - Check long English and Turkish labels fit, and the clock keeps 24-hour time
   while its date and weekday follow the selected language.
+
+
+## Müzik çalar kontrolü
+
+Otomatik testler oynatma zamanını, duraklatmayı, parça değişiminde kapak
+kimliğini, bozuk/eksik veriyi, ileri/geri kısıtını ve bağlantı yokken pasif
+kontrolleri sınar. Sol kapağın sağ çentik kenarını oynatmaması, sabit canvas’a
+sığması ve widget ekleme/kaldırma kalıcılığı da gerçek üretim tipleriyle sınanır.
+
+Canlı kontrol: sistem Şu An Çalınan’a bilgi veren bir uygulamada müzik/video aç;
+sol kapağı ve ana sayfadaki kartı kontrol et. Oynat/duraklat ve ileri/geri
+kaynağın desteklediği ölçüde çalışmalıdır. Kaynak kapanınca kart boş duruma
+dönmeli; widget kaldırıldığında sol genişleme ve helper kapanmalıdır. Kapak
+vermeyen kaynaklarda müzik simgesi beklenir.
