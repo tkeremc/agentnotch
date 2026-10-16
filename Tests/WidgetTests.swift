@@ -117,7 +117,7 @@ struct WidgetTests {
     private static func dynamicWidth() throws {
         let minimum = WidgetDrawerLayout.minimumWidth(collapsedWidth: 216)
         let one = layout([WidgetKind.clock.descriptor], minimumWidth: minimum)
-        try expect(one.width == 400, "one clock reserves notch and toolbar space without four empty columns")
+        try expect(one.width == 454, "one clock reserves two cells and clears notch controls")
         try expect(one.items[0].frame.midX == one.width / 2, "single clock stays centered")
         let notchRight = one.width / 2 + 108
         let controlsLeft = one.width - 20 - 64
@@ -156,8 +156,8 @@ struct WidgetTests {
     private static func editing() throws {
         let normal = layout([WidgetKind.clock.descriptor])
         let editable = layout([WidgetKind.clock.descriptor], editing: true)
-        try expect(editable.items[0].widgetHeight == 148, "widget content keeps its own height")
-        try expect(editable.items[0].frame.height == 184, "editing reserves card controls")
+        try expect(editable.items[0].widgetHeight == 180, "widget content keeps its own height")
+        try expect(editable.items[0].frame.height == 216, "editing reserves card controls")
         try expect(editable.contentHeight - normal.contentHeight == 146,
                    "editing reserves controls plus catalog")
         let empty = layout([], editing: true)

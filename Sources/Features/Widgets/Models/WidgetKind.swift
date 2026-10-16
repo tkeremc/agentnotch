@@ -25,7 +25,7 @@ enum WidgetKind: String, CaseIterable, Identifiable {
     }
     var descriptor: WidgetDescriptor {
         switch self {
-        case .clock: return WidgetDescriptor(id: rawValue, span: 1, height: 148)
+        case .clock: return WidgetDescriptor(id: rawValue, span: 2, height: 180)
         case .media: return WidgetDescriptor(id: rawValue, span: 2, height: 180)
         }
     }
