@@ -8,7 +8,21 @@ trap 'rm -rf "$test_build"' EXIT
 sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
 architecture="$(uname -m)"
 target="${architecture}-apple-macosx14.0"
-mkdir -p "$test_build/module-cache"
+mkdir -p "$test_build/module-cache" "$test_build/Localization.bundle"
+
+# Exercise the shipping String Catalog through real compiled .lproj resources.
+xcrun xcstringstool compile "$source_root/Resources/Localizable.xcstrings" \
+    --output-directory "$test_build/Localization.bundle"
+cat > "$test_build/Localization.bundle/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>com.agentnotch.localization-tests</string>
+    <key>CFBundleName</key><string>Localization</string>
+    <key>CFBundlePackageType</key><string>BNDL</string>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+</dict></plist>
+PLIST
 
 production_sources=()
 while IFS= read -r -d '' source_file; do
@@ -35,4 +49,6 @@ xcrun swiftc -parse-as-library -sdk "$sdk_path" -target "$target" \
     -Xlinker -rpath -Xlinker "$test_build" \
     "$source_root/Tests/"*.swift -o "$test_build/WidgetTests"
 
-"$test_build/WidgetTests"
+AGENTNOTCH_TEST_LOCALIZATION_BUNDLE="$test_build/Localization.bundle" \
+AGENTNOTCH_TEST_LOCALIZATION_CATALOG="$source_root/Resources/Localizable.xcstrings" \
+    "$test_build/WidgetTests"

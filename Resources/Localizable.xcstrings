@@ -1,0 +1,1248 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "clock.dateAccessibility": {
+      "comment": "Accessibility label for the clock date. First argument is the formatted date; second is the weekday. Arguments may be reordered.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "clock.timeAccessibility": {
+      "comment": "Accessibility label for the clock time. %@ is the formatted local time.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Time %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saat %@"
+          }
+        }
+      }
+    },
+    "fileShelf.cannotAccess": {
+      "comment": "File access error. %@ is the original file name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot access file: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosyaya erişilemiyor: %@"
+          }
+        }
+      }
+    },
+    "fileShelf.cannotAdd": {
+      "comment": "File bookmarking error. %@ is the original file name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not add file to shelf: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya depoya eklenemedi: %@"
+          }
+        }
+      }
+    },
+    "fileShelf.cannotRead": {
+      "comment": "File shelf data loading error.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not read the file shelf."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya deposu okunamadı."
+          }
+        }
+      }
+    },
+    "fileShelf.cannotRefreshAccess": {
+      "comment": "Error refreshing a stale security-scoped bookmark. %@ is the original file name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not renew file access: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya erişimi yenilenemedi: %@"
+          }
+        }
+      }
+    },
+    "fileShelf.cannotSave": {
+      "comment": "File shelf data saving error.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not save the file shelf. Please try again."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya deposu kaydedilemedi. Lütfen tekrar deneyin."
+          }
+        }
+      }
+    },
+    "fileShelf.description": {
+      "comment": "Empty shelf explanation. Files are references and are not moved or copied.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your files stay where they are, kept close at hand here."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosyaların yerinde kalır; burada elinin altında tutulur."
+          }
+        }
+      }
+    },
+    "fileShelf.dismissError": {
+      "comment": "Accessibility label of the close button on a file shelf error message.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss error message"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hata mesajını kapat"
+          }
+        }
+      }
+    },
+    "fileShelf.dragItem": {
+      "comment": "Accessibility label of a file drag target. %@ is the original file name and must not be translated.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, drag out"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, dışarı sürükle"
+          }
+        }
+      }
+    },
+    "fileShelf.dragToRetrieve": {
+      "comment": "Footer explaining how to drag a file out of the shelf.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag a file out to retrieve it"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geri almak için dosyayı dışarı sürükle"
+          }
+        }
+      }
+    },
+    "fileShelf.dropFiles": {
+      "comment": "Empty state headline of the file shelf.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop your files here"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosyalarını buraya bırak"
+          }
+        }
+      }
+    },
+    "fileShelf.dropHere": {
+      "comment": "Empty state headline while a file is dragged over the shelf.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop here"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buraya bırak"
+          }
+        }
+      }
+    },
+    "fileShelf.dropToAdd": {
+      "comment": "Footer hint while a file is dragged over the file shelf.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drop here to add"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eklemek için buraya bırak"
+          }
+        }
+      }
+    },
+    "fileShelf.inaccessible": {
+      "comment": "Message for an unavailable file reference.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File is inaccessible"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosyaya erişilemiyor"
+          }
+        }
+      }
+    },
+    "fileShelf.itemCount": {
+      "comment": "Number of file shelf entries. The %lld argument is the integer item count. Use the plural rules of the translation language.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld items"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld öğe"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "fileShelf.remove": {
+      "comment": "Tooltip of the remove-file button. The original file is not deleted.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove from shelf"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depodan kaldır"
+          }
+        }
+      }
+    },
+    "fileShelf.removeItem": {
+      "comment": "Accessibility label of the remove-file button. %@ is the original file name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, remove from shelf"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, depodan kaldır"
+          }
+        }
+      }
+    },
+    "fileShelf.someRecordsUnreadable": {
+      "comment": "Partial file shelf recovery warning.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some shelf entries could not be read."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depodaki bazı kayıtlar okunamadı."
+          }
+        }
+      }
+    },
+    "fileShelf.title": {
+      "comment": "Title of the file shelf page.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File shelf"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya deposu"
+          }
+        }
+      }
+    },
+    "island.dropPrompt": {
+      "comment": "Prompt shown over the island when a file is being dragged.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring a file here"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosyayı buraya getir"
+          }
+        }
+      }
+    },
+    "island.editWidgets": {
+      "comment": "Tooltip and accessibility label for entering widget edit mode.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit widgets"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget’ları düzenle"
+          }
+        }
+      }
+    },
+    "island.files": {
+      "comment": "Tooltip and accessibility label for the file shelf page button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File shelf"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya deposu"
+          }
+        }
+      }
+    },
+    "island.finishEditing": {
+      "comment": "Tooltip and accessibility label for leaving widget edit mode.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish editing"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düzenlemeyi bitir"
+          }
+        }
+      }
+    },
+    "island.home": {
+      "comment": "Tooltip and accessibility label for the home page button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana sayfa"
+          }
+        }
+      }
+    },
+    "island.openSettings": {
+      "comment": "Accessibility label of the settings gear button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open agentnotch settings"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch ayarlarını aç"
+          }
+        }
+      }
+    },
+    "island.settingsHelp": {
+      "comment": "Tooltip of the settings gear button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch settings"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch ayarları"
+          }
+        }
+      }
+    },
+    "language.english": {
+      "comment": "English language display name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "English"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İngilizce"
+          }
+        }
+      }
+    },
+    "language.system": {
+      "comment": "Language picker option that follows the preferred supported system language.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Default"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem varsayılanı"
+          }
+        }
+      }
+    },
+    "language.turkish": {
+      "comment": "Turkish language display name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turkish"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Türkçe"
+          }
+        }
+      }
+    },
+    "menu.enabled": {
+      "comment": "Menu bar enable toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch enabled"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch etkin"
+          }
+        }
+      }
+    },
+    "menu.quit": {
+      "comment": "Menu item that quits the app.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit agentnotch"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch’tan çık"
+          }
+        }
+      }
+    },
+    "menu.settings": {
+      "comment": "Menu item opening app settings. Preserve the ellipsis.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayarlar…"
+          }
+        }
+      }
+    },
+    "palette.applyHelp": {
+      "comment": "Color preset button tooltip. %@ is the translated preset name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply %@ colors"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ renklerini uygula"
+          }
+        }
+      }
+    },
+    "palette.black": {
+      "comment": "Name of the black background color preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Black"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siyah"
+          }
+        }
+      }
+    },
+    "palette.ice": {
+      "comment": "Name of the pale blue color preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ice"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buz"
+          }
+        }
+      }
+    },
+    "palette.night": {
+      "comment": "Name of the dark blue color preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Night"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gece"
+          }
+        }
+      }
+    },
+    "settings.animationSpeed": {
+      "comment": "Label of the animation speed slider.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animation speed"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animasyon hızı"
+          }
+        }
+      }
+    },
+    "settings.appearance": {
+      "comment": "Settings section heading for colors and the clock.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görünüm"
+          }
+        }
+      }
+    },
+    "settings.autosaved": {
+      "comment": "Footer at the bottom of settings.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes are saved automatically."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değişiklikler otomatik kaydedilir."
+          }
+        }
+      }
+    },
+    "settings.backgroundColor": {
+      "comment": "Label of the island background color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background color"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka plan rengi"
+          }
+        }
+      }
+    },
+    "settings.closeDelay": {
+      "comment": "Delay before the island closes, shown with milliseconds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing delay"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapanma gecikmesi"
+          }
+        }
+      }
+    },
+    "settings.disabledDescription": {
+      "comment": "Footer explaining the main enable toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When disabled, the island hides and animations and pointer tracking stop. You can enable it again from the menu bar."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapattığında ada gizlenir, animasyonlar ve fare takibi durur. Menü çubuğundan tekrar açabilirsin."
+          }
+        }
+      }
+    },
+    "settings.enable": {
+      "comment": "Main app enable toggle in settings.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable agentnotch"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch’u etkinleştir"
+          }
+        }
+      }
+    },
+    "settings.enableAnimations": {
+      "comment": "Island animation toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable animations"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animasyonları etkinleştir"
+          }
+        }
+      }
+    },
+    "settings.foregroundColor": {
+      "comment": "Label of the island foreground color picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text color"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazı rengi"
+          }
+        }
+      }
+    },
+    "settings.general": {
+      "comment": "Settings section heading.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genel"
+          }
+        }
+      }
+    },
+    "settings.language": {
+      "comment": "Label of the app language picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Language"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dil"
+          }
+        }
+      }
+    },
+    "settings.languageDescription": {
+      "comment": "Settings footer explaining immediate language switching and the automatic system option.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes take effect immediately. System Default follows your preferred system language."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değişiklikler anında uygulanır. Sistem varsayılanı, sisteminde tercih ettiğin dili izler."
+          }
+        }
+      }
+    },
+    "settings.motion": {
+      "comment": "Settings section heading for animation and timing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motion"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hareket"
+          }
+        }
+      }
+    },
+    "settings.motionDescription": {
+      "comment": "Footer explaining motion settings. Reduce Motion is the macOS accessibility setting.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher speeds make transitions shorter. With animations disabled, the island opens and closes instantly. The system’s Reduce Motion setting is always respected."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hız arttıkça geçişler kısalır. Animasyonları kapattığında ada anında açılıp kapanır. Sistemin Hareketi Azalt seçeneğine her zaman uyulur."
+          }
+        }
+      }
+    },
+    "settings.openDelay": {
+      "comment": "Delay before the island opens, shown with milliseconds.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening delay"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açılma gecikmesi"
+          }
+        }
+      }
+    },
+    "settings.palettes": {
+      "comment": "Label above the three color preset buttons.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color presets"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hazır renkler"
+          }
+        }
+      }
+    },
+    "settings.reset": {
+      "comment": "Button restoring all app settings to their defaults.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore defaults"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Varsayılanlara dön"
+          }
+        }
+      }
+    },
+    "settings.showSeconds": {
+      "comment": "Clock seconds visibility toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show seconds"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saniyeyi göster"
+          }
+        }
+      }
+    },
+    "settings.subtitle": {
+      "comment": "Subtitle below the app name in settings. The island is the notch overlay.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make the island your own."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adanı kendine göre ayarla."
+          }
+        }
+      }
+    },
+    "settings.title": {
+      "comment": "Title of the settings window. Keep the product name unchanged.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch Settings"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agentnotch Ayarları"
+          }
+        }
+      }
+    },
+    "widget.add": {
+      "comment": "Button opening the widget picker and heading of that picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add widget"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widget ekle"
+          }
+        }
+      }
+    },
+    "widget.addNamed": {
+      "comment": "Accessibility label of a widget picker add button. %@ is the localized widget title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add %@ widget"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ widget’ını ekle"
+          }
+        }
+      }
+    },
+    "widget.alreadyAdded": {
+      "comment": "Accessibility label of an already added widget. %@ is the localized widget title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, already added"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, zaten eklendi"
+          }
+        }
+      }
+    },
+    "widget.clock.description": {
+      "comment": "Short description of the clock widget in the widget picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local time, date, and day"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel saat, tarih ve gün"
+          }
+        }
+      }
+    },
+    "widget.clock.title": {
+      "comment": "Display name of the clock widget.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clock"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saat"
+          }
+        }
+      }
+    },
+    "widget.dragToReorder": {
+      "comment": "Tooltip of the widget reorder drag handle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to reorder"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sıralamak için sürükle"
+          }
+        }
+      }
+    },
+    "widget.drawerEmpty": {
+      "comment": "Headline of the empty widget drawer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your drawer is empty"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çekmecen boş"
+          }
+        }
+      }
+    },
+    "widget.drawerEmptyDescription": {
+      "comment": "Description of the empty widget drawer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add a widget below to get started."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlamak için aşağıdan bir widget ekle."
+          }
+        }
+      }
+    },
+    "widget.moveBackward": {
+      "comment": "Widget edit control moving a widget toward the end of the list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move backward"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkaya taşı"
+          }
+        }
+      }
+    },
+    "widget.moveForward": {
+      "comment": "Widget edit control moving a widget toward the start of the list.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move forward"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öne taşı"
+          }
+        }
+      }
+    },
+    "widget.remove": {
+      "comment": "Tooltip and accessibility label of the remove-widget control. %@ is the localized widget title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %@ widget"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ widget’ını kaldır"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

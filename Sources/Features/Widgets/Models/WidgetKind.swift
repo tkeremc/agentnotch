@@ -5,14 +5,14 @@ enum WidgetKind: String, CaseIterable, Identifiable {
     case clock
 
     var id: String { rawValue }
-    var title: String {
-        switch self { case .clock: return "Saat" }
+    var titleKey: L10nKey {
+        switch self { case .clock: return .widgetClockTitle }
     }
     var symbol: String {
         switch self { case .clock: return "clock" }
     }
-    var summary: String {
-        switch self { case .clock: return "Yerel saat, tarih ve gün" }
+    var summaryKey: L10nKey {
+        switch self { case .clock: return .widgetClockDescription }
     }
     var descriptor: WidgetDescriptor {
         switch self {

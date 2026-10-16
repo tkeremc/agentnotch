@@ -106,7 +106,7 @@ enum FileShelfTests {
             let loaded = FileShelfStore(storageURL: storage, bookmarkCodec: codec)
             try expect(loaded.items.count == 1 && loaded.items[0].isAvailable,
                        "skip malformed and duplicate records without hiding valid file")
-            try expect(loaded.errorMessage != nil, "corruption is surfaced")
+            try expect(loaded.errorMessage == .someRecordsUnreadable, "corruption retains a translatable cause")
         }
     }
 
@@ -131,7 +131,7 @@ enum FileShelfTests {
             let damaged = Data("incomplete JSON {".utf8)
             try damaged.write(to: storage)
             let store = FileShelfStore(storageURL: storage, bookmarkCodec: codec)
-            try expect(store.errorMessage != nil, "corrupt archive is reported")
+            try expect(store.errorMessage == .cannotRead, "corrupt archive retains a translatable cause")
             let original = try file(root)
             try expect(store.add([original]), "valid file can repair an unreadable-format shelf")
             let recovery = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
@@ -210,7 +210,7 @@ enum FileShelfTests {
             try expect(!store.remove(id: id), "failed durable removal must report failure")
             try expect(store.items.map(\.id) == [id], "failed removal retains existing card")
             try expect(!store.add([second]), "failed save rejects new file")
-            try expect(store.items.map(\.id) == [id] && store.errorMessage != nil,
+            try expect(store.items.map(\.id) == [id] && store.errorMessage == .cannotSave,
                        "failed add retains previous state and surfaces error")
             try expect(FileManager.default.fileExists(atPath: first.path), "original is untouched")
         }
@@ -222,6 +222,8 @@ enum FileShelfTests {
             try expect(!store.add([URL(string: "https://example.com")!, root.appendingPathComponent("missing")]),
                        "reject remote and nonexistent URLs")
             try expect(store.items.isEmpty, "invalid drop does not create cards")
+            try expect(store.errorMessage == .cannotAccess("missing"),
+                       "unavailable file error retains its filename for later translation")
             let folder = root.appendingPathComponent("folder", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try expect(store.add([folder]), "local folders are accepted")

@@ -14,7 +14,7 @@ struct NotchSettingsView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("agentnotch").font(.title2.bold())
-                    Text("Adanı kendine göre ayarla.")
+                    Text(settings.localization.text(.settingsSubtitle))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -23,53 +23,61 @@ struct NotchSettingsView: View {
 
             Form {
                 Section {
-                    Toggle("agentnotch’u etkinleştir", isOn: $settings.isEnabled)
+                    Toggle(settings.localization.text(.settingsEnable), isOn: $settings.isEnabled)
+                    Picker(settings.localization.text(.settingsLanguage), selection: $settings.language) {
+                        ForEach(LanguagePreference.allCases) { language in
+                            Text(language.title(using: settings.localization)).tag(language)
+                        }
+                    }
+                    Text(settings.localization.text(.settingsLanguageDescription))
+                        .font(.caption).foregroundStyle(.secondary)
                 } header: {
-                    Text("Genel")
+                    Text(settings.localization.text(.settingsGeneral))
                 } footer: {
-                    Text("Kapattığında ada gizlenir, animasyonlar ve fare takibi durur. Menü çubuğundan tekrar açabilirsin.")
+                    Text(settings.localization.text(.settingsDisabledDescription))
                 }
 
-                Section("Görünüm") {
-                    ColorPicker("Arka plan rengi", selection: $settings.backgroundColor, supportsOpacity: false)
-                    ColorPicker("Yazı rengi", selection: $settings.foregroundColor, supportsOpacity: false)
+                Section(settings.localization.text(.settingsAppearance)) {
+                    ColorPicker(settings.localization.text(.settingsBackgroundColor), selection: $settings.backgroundColor, supportsOpacity: false)
+                    ColorPicker(settings.localization.text(.settingsForegroundColor), selection: $settings.foregroundColor, supportsOpacity: false)
                     HStack {
-                        Text("Hazır renkler")
+                        Text(settings.localization.text(.settingsPalettes))
                         Spacer()
-                        palette("Siyah", background: "000000", foreground: "FFFFFF")
-                        palette("Gece", background: "141E36", foreground: "DDE8FF")
-                        palette("Buz", background: "DDF4FF", foreground: "142838")
+                        palette(settings.localization.text(.paletteBlack), background: "000000", foreground: "FFFFFF")
+                        palette(settings.localization.text(.paletteNight), background: "141E36", foreground: "DDE8FF")
+                        palette(settings.localization.text(.paletteIce), background: "DDF4FF", foreground: "142838")
                     }
-                    Toggle("Saniyeyi göster", isOn: $settings.showsSeconds)
+                    Toggle(settings.localization.text(.settingsShowSeconds), isOn: $settings.showsSeconds)
                 }
 
                 Section {
-                    Toggle("Animasyonları etkinleştir", isOn: $settings.animationsEnabled)
-                    slider("Animasyon hızı", value: $settings.animationSpeed, range: 0.25...3, step: 0.25,
-                           readout: String(format: "%.2g×", settings.animationSpeed))
+                    Toggle(settings.localization.text(.settingsEnableAnimations), isOn: $settings.animationsEnabled)
+                    slider(settings.localization.text(.settingsAnimationSpeed), value: $settings.animationSpeed, range: 0.25...3, step: 0.25,
+                           readout: settings.animationSpeed.formatted(.number.locale(settings.localization.locale).precision(.significantDigits(1...2))) + "×")
                         .disabled(!settings.animationsEnabled)
-                    slider("Açılma gecikmesi", value: $settings.openDelay, range: 0...1000, step: 20,
+                    slider(settings.localization.text(.settingsOpenDelay), value: $settings.openDelay, range: 0...1000, step: 20,
                            readout: "\(Int(settings.openDelay)) ms")
-                    slider("Kapanma gecikmesi", value: $settings.closeDelay, range: 0...1000, step: 20,
+                    slider(settings.localization.text(.settingsCloseDelay), value: $settings.closeDelay, range: 0...1000, step: 20,
                            readout: "\(Int(settings.closeDelay)) ms")
                 } header: {
-                    Text("Hareket")
+                    Text(settings.localization.text(.settingsMotion))
                 } footer: {
-                    Text("Hız arttıkça geçişler kısalır. Animasyonları kapattığında ada anında açılıp kapanır. Sistemin Hareketi Azalt seçeneğine her zaman uyulur.")
+                    Text(settings.localization.text(.settingsMotionDescription))
                 }
             }
             .formStyle(.grouped)
 
             Divider()
             HStack {
-                Text("Değişiklikler otomatik kaydedilir.")
+                Text(settings.localization.text(.settingsAutosaved))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Varsayılanlara dön") { settings.reset() }
+                Button(settings.localization.text(.settingsReset)) { settings.reset() }
             }
             .padding(16)
         }
-        .frame(width: 540, height: 720)
+        .frame(width: 540, height: 780)
+        .environment(\.locale, settings.localization.locale)
     }
 
     private func palette(_ title: String, background: String, foreground: String) -> some View {
@@ -77,7 +85,7 @@ struct NotchSettingsView: View {
             settings.backgroundHex = background
             settings.foregroundHex = foreground
         }
-        .help("\(title) renklerini uygula")
+        .help(settings.localization.text(.paletteApplyHelp, title))
     }
 
     private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,

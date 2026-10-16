@@ -26,7 +26,7 @@ struct WidgetTests {
             ("page transition geometry stays continuous", pageGeometry),
             ("file drag hint stays compact until approach", fileDragHint),
             ("cancelled file drag restores page only after collapse", deferredDragRestoration)
-        ] + FileShelfTests.cases + FileShelfDragTests.cases
+        ] + FileShelfTests.cases + FileShelfDragTests.cases + LocalizationTests.cases
         var failures = 0
         for (name, test) in tests {
             do {
@@ -360,10 +360,10 @@ struct WidgetTests {
 
     private static func clock() throws {
         let instant = ISO8601DateFormatter().date(from: "2026-10-15T21:05:09Z")!
-        let utc = ClockReadout(date: instant, timeZone: TimeZone(secondsFromGMT: 0)!)
+        let utc = ClockReadout(date: instant, timeZone: TimeZone(secondsFromGMT: 0)!, locale: Locale(identifier: "tr_TR"))
         try expect(utc.time == "21:05" && utc.seconds == "09", "24-hour time and padded seconds")
         try expect(utc.date == "15 Ekim 2026" && utc.weekday == "Perşembe", "Turkish date and weekday")
-        let istanbul = ClockReadout(date: instant, timeZone: TimeZone(identifier: "Europe/Istanbul")!)
+        let istanbul = ClockReadout(date: instant, timeZone: TimeZone(identifier: "Europe/Istanbul")!, locale: Locale(identifier: "tr_TR"))
         try expect(istanbul.time == "00:05", "timezone can cross midnight")
         try expect(istanbul.date == "16 Ekim 2026" && istanbul.weekday == "Cuma", "date follows timezone rollover")
     }

@@ -101,16 +101,16 @@ struct WidgetDrawerView: View {
         return HStack(spacing: 4) {
             Image(systemName: "line.3.horizontal")
                 .foregroundStyle(settings.foregroundColor.opacity(0.4))
-                .help("Sıralamak için sürükle")
+                .help(settings.localization.text(.widgetDragToReorder))
                 .accessibilityHidden(true)
             Spacer(minLength: 0)
-            control("Öne taşı", symbol: "arrow.left", enabled: index > 0) {
+            control(settings.localization.text(.widgetMoveForward), symbol: "arrow.left", enabled: index > 0) {
                 settings.moveWidget(widget, to: index - 1)
             }
-            control("Arkaya taşı", symbol: "arrow.right", enabled: index < settings.widgets.count - 1) {
+            control(settings.localization.text(.widgetMoveBackward), symbol: "arrow.right", enabled: index < settings.widgets.count - 1) {
                 settings.moveWidget(widget, to: index + 1)
             }
-            control("\(widget.title) widget’ını kaldır", symbol: "minus", enabled: true) {
+            control(settings.localization.text(.widgetRemove, settings.localization.text(widget.titleKey)), symbol: "minus", enabled: true) {
                 settings.removeWidget(widget)
             }
         }
@@ -136,14 +136,14 @@ struct WidgetDrawerView: View {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 24, weight: .light))
                 .foregroundStyle(settings.foregroundColor.opacity(0.4))
-            Text("Çekmecen boş")
+            Text(settings.localization.text(.widgetDrawerEmpty))
                 .font(.system(size: 13, weight: .medium))
             if state.isEditingWidgets {
-                Text("Başlamak için aşağıdan bir widget ekle.")
+                Text(settings.localization.text(.widgetDrawerEmptyDescription))
                     .font(.system(size: 11))
                     .foregroundStyle(settings.foregroundColor.opacity(0.55))
             } else {
-                Button("Widget ekle") { state.isEditingWidgets = true }
+                Button(settings.localization.text(.widgetAdd)) { state.isEditingWidgets = true }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 12)
@@ -157,7 +157,7 @@ struct WidgetDrawerView: View {
 
     private var catalog: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Widget ekle")
+            Text(settings.localization.text(.widgetAdd))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(settings.foregroundColor.opacity(0.6))
             ScrollView(.horizontal, showsIndicators: false) {
@@ -182,8 +182,8 @@ struct WidgetDrawerView: View {
                 Image(systemName: widget.symbol)
                     .font(.system(size: 19, weight: .light))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(widget.title).font(.system(size: 12, weight: .medium))
-                    Text(widget.summary)
+                    Text(settings.localization.text(widget.titleKey)).font(.system(size: 12, weight: .medium))
+                    Text(settings.localization.text(widget.summaryKey))
                         .font(.system(size: 10))
                         .foregroundStyle(settings.foregroundColor.opacity(0.55))
                 }
@@ -199,6 +199,6 @@ struct WidgetDrawerView: View {
         .buttonStyle(.plain)
         .disabled(added)
         .opacity(added ? 0.55 : 1)
-        .accessibilityLabel(added ? "\(widget.title), zaten eklendi" : "\(widget.title) widget’ını ekle")
+        .accessibilityLabel(settings.localization.text(added ? .widgetAlreadyAdded : .widgetAddNamed, settings.localization.text(widget.titleKey)))
     }
 }

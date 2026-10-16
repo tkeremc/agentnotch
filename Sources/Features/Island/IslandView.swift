@@ -32,7 +32,7 @@ struct IslandView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "tray.and.arrow.down")
                         .font(.system(size: 12, weight: .medium))
-                    Text("Dosyayı buraya getir")
+                    Text(settings.localization.text(.islandDropPrompt))
                         .font(.system(size: 10, weight: .medium))
                 }
                 .foregroundStyle(settings.foregroundColor.opacity(0.85))
@@ -53,6 +53,7 @@ struct IslandView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .environment(\.colorScheme, .dark)
+        .environment(\.locale, settings.localization.locale)
     }
 
     @ViewBuilder
@@ -81,8 +82,8 @@ struct IslandView: View {
 
     private var toolbar: some View {
         HStack(spacing: WidgetDrawerLayout.toolbarGap) {
-            pageButton(.home, symbol: "house", title: "Ana sayfa")
-            pageButton(.files, symbol: "tray", title: "Dosya deposu")
+            pageButton(.home, symbol: "house", title: settings.localization.text(.islandHome))
+            pageButton(.files, symbol: "tray", title: settings.localization.text(.islandFiles))
             Spacer(minLength: 0)
             Button {
                 state.isEditingWidgets.toggle()
@@ -95,8 +96,8 @@ struct IslandView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help(state.isEditingWidgets ? "Düzenlemeyi bitir" : "Widget’ları düzenle")
-            .accessibilityLabel(state.isEditingWidgets ? "Düzenlemeyi bitir" : "Widget’ları düzenle")
+            .help(state.isEditingWidgets ? settings.localization.text(.islandFinishEditing) : settings.localization.text(.islandEditWidgets))
+            .accessibilityLabel(state.isEditingWidgets ? settings.localization.text(.islandFinishEditing) : settings.localization.text(.islandEditWidgets))
             .opacity(Double(state.homePageOpacity))
             .allowsHitTesting(state.page == .home && state.homePageOpacity > 0.9)
             .accessibilityHidden(state.page != .home || state.homePageOpacity < 0.9)
@@ -110,8 +111,8 @@ struct IslandView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("agentnotch ayarları")
-            .accessibilityLabel("agentnotch ayarlarını aç")
+            .help(settings.localization.text(.islandSettingsHelp))
+            .accessibilityLabel(settings.localization.text(.islandOpenSettings))
         }
         .foregroundStyle(settings.foregroundColor)
     }

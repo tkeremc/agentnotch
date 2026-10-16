@@ -5,6 +5,16 @@ import SwiftUI
 @MainActor
 final class NotchSettings: ObservableObject {
     private let defaults: UserDefaults
+    private let preferredLanguages: () -> [String]
+    private var localeObserver: AnyCancellable?
+
+    @Published var language: LanguagePreference {
+        didSet {
+            defaults.set(language.rawValue, forKey: "island.language")
+            refreshSystemLanguage()
+        }
+    }
+    @Published private(set) var localization: AppLocalization
 
     @Published var isEnabled: Bool { didSet { defaults.set(isEnabled, forKey: "island.enabled") } }
     @Published var animationsEnabled: Bool { didSet { defaults.set(animationsEnabled, forKey: "island.animations") } }
@@ -18,8 +28,14 @@ final class NotchSettings: ObservableObject {
         didSet { defaults.set(widgets.map(\.rawValue), forKey: "island.widgets") }
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         preferredLanguages: @escaping () -> [String] = { Locale.preferredLanguages }) {
         self.defaults = defaults
+        self.preferredLanguages = preferredLanguages
+        let savedLanguage = defaults.string(forKey: "island.language")
+            .flatMap(LanguagePreference.init(rawValue:)) ?? .system
+        language = savedLanguage
+        localization = AppLocalization(language: savedLanguage.resolved(preferredLanguages: preferredLanguages()))
         defaults.register(defaults: [
             "island.enabled": true, "island.animations": true, "island.speed": 1.0,
             "island.openDelay": 60.0, "island.closeDelay": 160.0,
@@ -40,6 +56,13 @@ final class NotchSettings: ObservableObject {
         } else {
             widgets = [.clock]
         }
+        localeObserver = NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshSystemLanguage() }
+    }
+
+    func refreshSystemLanguage() {
+        localization = AppLocalization(language: language.resolved(preferredLanguages: preferredLanguages()))
     }
 
     func addWidget(_ widget: WidgetKind) {
@@ -70,6 +93,7 @@ final class NotchSettings: ObservableObject {
     }
 
     func reset() {
+        language = .system
         isEnabled = true
         animationsEnabled = true
         animationSpeed = 1

@@ -42,6 +42,7 @@ agentnotch/
 ├── agentnotch.xcodeproj/      # Xcode hedefi, derleme ayarları ve ortak şema
 ├── Sources/                     # Uygulamaya derlenen Swift kodları
 │   ├── App/                     # Başlangıç, uygulama yaşam döngüsü, menü
+│   ├── Localization/            # Dil çözümleme, kaynak seçimi ve tip güvenli metin anahtarları
 │   └── Features/
 │       ├── Island/               # Çentik yüzeyi ve açılma/kapanma yönetimi
 │       │   ├── Animation/        # Hareket ve geçiş hesapları
@@ -53,7 +54,8 @@ agentnotch/
 │           ├── Models/           # Widget türleri ve boyut tanımları
 │           └── Views/            # Listeleme, düzenleme ve widget kataloğu
 ├── Resources/
-│   └── Assets.xcassets/          # Paketlenen uygulama ikonu ve menü simgesi
+│   ├── Assets.xcassets/          # Paketlenen uygulama ikonu ve menü simgesi
+│   └── Localizable.xcstrings     # İngilizce/Türkçe çeviriler ve çoğul kuralları
 ├── Configuration/
 │   └── Info.plist               # Uygulama kimliği ve macOS bilgileri
 ├── Tests/                       # Mevcut davranış testleri ve çalıştırıcısı
@@ -80,6 +82,7 @@ Swift modülüne derlenir; klasörler arasında ayrıca `import` yazman gerekmez
 | Widget ekleme, kaldırma ve sıralama arayüzünü düzenlemek | `Sources/Features/Widgets/Views/WidgetDrawerView.swift` |
 | Saatin görünümünü değiştirmek | `Sources/Features/Widgets/Clock/ClockWidgetView.swift` |
 | Saat ve tarih biçimini değiştirmek | `Sources/Features/Widgets/Clock/ClockReadout.swift` |
+| Metin çevirmek veya yeni dil eklemek | `Resources/Localizable.xcstrings` ve `Sources/Localization/` |
 
 Akış: `AgentNotchApp` uygulamayı başlatır. `AppDelegate`, ortak `NotchSettings`
 nesnesini ve `IslandController` nesnesini oluşturur. Controller native pencereyi,
@@ -90,6 +93,51 @@ native pencerenin kullandığı boyutları hesaplar.
 `NotchSettings`, tercihleri `UserDefaults` ile saklar. Mevcut `island.*`
 anahtarları ve `com.local.NotchLab` uygulama kimliği ad değişikliğinde korunur;
 böylece kayıtlı tercihler kullanılmaya devam eder.
+
+## Çoklu dil
+
+İlk açılışta **Sistem varsayılanı** seçilidir. macOS'un tercih edilen diller
+listesindeki ilk desteklenen dil kullanılır: `tr-TR`, `tr-CY` gibi Türkçe
+varyantları Türkçeye; `en-US`, `en-GB` gibi İngilizce varyantları İngilizceye
+eşlenir. Listede desteklenen dil yoksa İngilizce kullanılır. Kullanıcı
+**Ayarlar → Genel → Dil** alanından **İngilizce** veya **Türkçe** seçerek bu
+seçimi geçersiz kılabilir; tekrar Sistem seçeneğine dönerek otomatik seçimi
+açabilir. Tercih `island.language` anahtarında `system`, `en` veya `tr` olarak
+saklanır. Eksik/eski/geçersiz değerler otomatik seçimle açılır.
+
+`NotchSettings` ortak dil durumunu tutar; `AppLocalization` açık dil bundle'ını
+seçer ve `L10nKey` anahtarlarını String Catalog'dan çözer. İngilizce kaynak ve
+fallback dilidir. Uygulamanın menüsü, açık ayarlar penceresinin başlığı, çentik,
+widget'lar, araç ipuçları ve erişilebilirlik metinleri yeniden başlatmadan
+çevrilir. macOS locale değişimi bildirildiğinde otomatik seçim yenilenir;
+kullanıcının açık dil tercihi korunur. Global `AppleLanguages` değiştirilmez.
+Ada controller'ı, animasyonlar ve sürükleme durumu dil değişiminde yeniden
+oluşturulmaz. Sistem renk seçicisi gibi macOS'un yönettiği pencereler kendi
+sistem dilini kullanabilir.
+
+Tarih/gün adları seçilen dili, sayı/tarih biçimleri sistem bölgesini ve saat
+sistem saat dilimini kullanır. Saat her iki dilde de 24 saat düzenindedir.
+Dosya deposu hataları hazır metin yerine hata türü ve dosya adını saklar;
+böylece ekranda duran hata da yeniden çevrilir. Dosya adları ve yollar aynen
+korunur. Öğe sayıları katalogdaki gerçek çoğul kurallarıyla biçimlendirilir.
+
+Yeni kullanıcı metni eklerken:
+
+1. `L10nKey` içine anlamlı, sabit bir anahtar ekle (`settings.language` gibi).
+2. `Localizable.xcstrings` içine İngilizce/Türkçe çevirileri ve çevirmen
+   açıklamasını ekle. Dinamik anahtarlar kullanıldığı için katalog kayıtları
+   `extractionState: manual` olarak tutulur.
+3. Görünümde `settings.localization.text(.settingsLanguage)` kullan. Dinamik
+   metni birleştirmek yerine katalogdaki `%@` / konumsal `%1$@` yer tutucularına
+   argüman geçir. Sayılar için uygun türü kullan; `shelfItemCount` `%lld` ve
+   `Int64` ile çoğul kullanımına örnektir. Arayüz köküne aynı locale'i geçir.
+4. `bash Tests/run.sh` çalıştır. Testler her tip güvenli anahtarın her iki dilde
+   gerçekten derlenmiş kaynakta bulunmasını doğrular.
+
+Yeni dil eklerken `AppLanguage` ve `LanguagePreference` türlerini, tercih adını,
+katalog çevirilerini ve Xcode `knownRegions` listesini genişlet. İki proje
+başlatıcısında da kaynak üyeliğini tutarlı tut. Çeviriler Swift koduna gömülmez;
+Xcode'un String Catalog editörü veya XLIFF içe/dışa aktarma akışı kullanılabilir.
 
 ## Yeni Swift dosyası veya widget ekleme
 

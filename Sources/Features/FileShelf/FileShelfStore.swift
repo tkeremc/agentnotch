@@ -1,6 +1,28 @@
 import Combine
 import Foundation
 
+/// Keep the cause and filename so an already-visible error follows language changes.
+enum FileShelfError: Equatable {
+    case cannotAccess(String)
+    case cannotAdd(String)
+    case cannotRefreshAccess(String)
+    case someRecordsUnreadable
+    case cannotRead
+    case cannotSave
+
+    @MainActor
+    func localized(using localization: AppLocalization) -> String {
+        switch self {
+        case .cannotAccess(let name): return localization.text(.fileShelfCannotAccess, name)
+        case .cannotAdd(let name): return localization.text(.fileShelfCannotAdd, name)
+        case .cannotRefreshAccess(let name): return localization.text(.fileShelfCannotRefreshAccess, name)
+        case .someRecordsUnreadable: return localization.text(.fileShelfSomeRecordsUnreadable)
+        case .cannotRead: return localization.text(.fileShelfCannotRead)
+        case .cannotSave: return localization.text(.fileShelfCannotSave)
+        }
+    }
+}
+
 struct FileShelfItem: Identifiable {
     let id: UUID
     let name: String
@@ -32,7 +54,7 @@ struct FileShelfBookmarkCodec {
 @MainActor
 final class FileShelfStore: ObservableObject {
     @Published private(set) var items: [FileShelfItem] = []
-    @Published private(set) var errorMessage: String?
+    @Published private(set) var errorMessage: FileShelfError?
 
     private struct Record: Codable, Equatable {
         let id: UUID
@@ -80,7 +102,7 @@ final class FileShelfStore: ObservableObject {
             defer { if accessed { bookmarkCodec.stopAccess(url) } }
             guard FileManager.default.fileExists(atPath: url.path),
                   FileManager.default.isReadableFile(atPath: url.path) else {
-                errorMessage = "Dosyaya erişilemiyor: \(url.lastPathComponent)"
+                errorMessage = .cannotAccess(url.lastPathComponent)
                 continue
             }
             let identity = Self.identity(url)
@@ -96,7 +118,7 @@ final class FileShelfStore: ObservableObject {
                 }
                 accepted = true
             } catch {
-                errorMessage = "Dosya depoya eklenemedi: \(url.lastPathComponent)"
+                errorMessage = .cannotAdd(url.lastPathComponent)
             }
         }
         guard accepted else { return false }
@@ -138,7 +160,7 @@ final class FileShelfStore: ObservableObject {
                         if let bookmark = try? bookmarkCodec.create(result.url) {
                             refreshed[index].bookmark = bookmark
                         } else {
-                            errorMessage = "Dosya erişimi yenilenemedi: \(refreshed[index].name)"
+                            errorMessage = .cannotRefreshAccess(refreshed[index].name)
                         }
                     }
                 }
@@ -177,7 +199,7 @@ final class FileShelfStore: ObservableObject {
                       let record = try? JSONDecoder().decode(Record.self, from: entryData),
                       !record.name.isEmpty, !record.bookmark.isEmpty,
                       seen.insert(record.id).inserted else {
-                    errorMessage = "Depodaki bazı kayıtlar okunamadı."
+                    errorMessage = .someRecordsUnreadable
                     continue
                 }
                 records.append(record)
@@ -185,7 +207,7 @@ final class FileShelfStore: ObservableObject {
             if errorMessage == nil { recoveryData = nil }
         } catch {
             archiveCouldNotBeRead = recoveryData == nil
-            errorMessage = "Dosya deposu okunamadı."
+            errorMessage = .cannotRead
         }
     }
 
@@ -206,7 +228,7 @@ final class FileShelfStore: ObservableObject {
             recoveryData = nil
             return true
         } catch {
-            errorMessage = "Dosya deposu kaydedilemedi. Lütfen tekrar deneyin."
+            errorMessage = .cannotSave
             return false
         }
     }

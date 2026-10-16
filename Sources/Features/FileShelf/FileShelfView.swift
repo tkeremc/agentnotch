@@ -13,19 +13,19 @@ struct FileShelfView: View {
         }) {
             VStack(spacing: 12) {
                 HStack {
-                    Text("Dosya deposu").font(.system(size: 13, weight: .semibold))
+                    Text(settings.localization.text(.fileShelfTitle)).font(.system(size: 13, weight: .semibold))
                     Spacer()
-                    Text("\(store.items.count) öğe")
+                    Text(settings.localization.text(.shelfItemCount, Int64(store.items.count)))
                         .font(.system(size: 11))
                         .opacity(0.5)
                 }
                 if let error = store.errorMessage {
                     HStack(alignment: .top) {
-                        Text(error).font(.system(size: 11))
+                        Text(error.localized(using: settings.localization)).font(.system(size: 11))
                         Spacer(minLength: 4)
                         Button { store.clearError() } label: { Image(systemName: "xmark") }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("Hata mesajını kapat")
+                            .accessibilityLabel(settings.localization.text(.fileShelfDismissError))
                     }
                     .foregroundStyle(.orange)
                 }
@@ -38,7 +38,7 @@ struct FileShelfView: View {
                         }
                         .padding(2)
                     }
-                    Text(state.isDropTargeted ? "Eklemek için buraya bırak" : "Geri almak için dosyayı dışarı sürükle")
+                    Text(state.isDropTargeted ? settings.localization.text(.fileShelfDropToAdd) : settings.localization.text(.fileShelfDragToRetrieve))
                         .font(.system(size: 11))
                         .opacity(state.isDropTargeted ? 0.9 : 0.45)
                 }
@@ -66,9 +66,9 @@ struct FileShelfView: View {
             Image(systemName: state.isDropTargeted ? "tray.and.arrow.down.fill" : "tray.and.arrow.down")
                 .font(.system(size: 32, weight: .light))
                 .opacity(state.isDropTargeted ? 1 : 0.5)
-            Text(state.isDropTargeted ? "Buraya bırak" : "Dosyalarını buraya bırak")
+            Text(state.isDropTargeted ? settings.localization.text(.fileShelfDropHere) : settings.localization.text(.fileShelfDropFiles))
                 .font(.system(size: 13, weight: .medium))
-            Text("Dosyaların yerinde kalır; burada elinin altında tutulur.")
+            Text(settings.localization.text(.fileShelfDescription))
                 .font(.system(size: 11))
                 .multilineTextAlignment(.center)
                 .opacity(0.5)
@@ -102,12 +102,12 @@ struct FileShelfView: View {
                     store.refresh()
                     state.outgoingChanged?(false)
                 })
-                .accessibilityLabel("\(item.name), dışarı sürükle")
+                .accessibilityLabel(settings.localization.text(.fileShelfDragItem, item.name))
             }
             // Keep the native drag surface below the always-visible trash button.
             .padding(.top, 30)
             if !item.isAvailable {
-                Text("Dosyaya erişilemiyor")
+                Text(settings.localization.text(.fileShelfInaccessible))
                     .font(.system(size: 9)).foregroundStyle(.orange)
                     .padding(.horizontal, 6)
             }
@@ -123,11 +123,11 @@ struct FileShelfView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Depodan kaldır")
-            .accessibilityLabel("\(item.name), depodan kaldır")
+            .help(settings.localization.text(.fileShelfRemove))
+            .accessibilityLabel(settings.localization.text(.fileShelfRemoveItem, item.name))
             .disabled(state.isOutgoingDrag)
             .padding(4)
         }
-        .help(item.url?.path ?? "Dosyaya erişilemiyor")
+        .help(item.url?.path ?? settings.localization.text(.fileShelfInaccessible))
     }
 }

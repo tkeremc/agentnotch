@@ -8,7 +8,7 @@ struct ClockWidgetView: View {
     let animates: Bool
 
     var body: some View {
-        let readout = ClockReadout(date: date)
+        let readout = ClockReadout(date: date, locale: settings.localization.locale)
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
@@ -18,7 +18,7 @@ struct ClockWidgetView: View {
                     .monospacedDigit()
                     .contentTransition(.numericText(countsDown: false))
                     .animation(digitAnimation, value: readout.time)
-                    .accessibilityLabel("Saat \(readout.time)")
+                    .accessibilityLabel(settings.localization.text(.clockTimeAccessibility, readout.time))
                 if settings.showsSeconds {
                     Text(readout.seconds)
                         .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -46,7 +46,7 @@ struct ClockWidgetView: View {
                     .foregroundStyle(settings.foregroundColor.opacity(0.5))
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("\(readout.date), \(readout.weekday)")
+            .accessibilityLabel(settings.localization.text(.clockDateAccessibility, readout.date, readout.weekday))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .lineLimit(1)
