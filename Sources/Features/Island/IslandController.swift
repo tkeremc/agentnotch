@@ -8,6 +8,8 @@ final class IslandController: NSObject {
     private let state = IslandState()
     private let shelf = FileShelfStore()
     private let media = NowPlayingStore()
+    private let compactMedia = CompactMediaVisibility()
+    private var mediaMonitoringEnabled = false
     private let settings: NotchSettings
     private var subscriptions = Set<AnyCancellable>()
     private let panel: IslandPanel
@@ -122,7 +124,10 @@ final class IslandController: NSObject {
         }.store(in: &subscriptions)
         media.$snapshot.sink { [weak self] snapshot in
             guard let self else { return }
-            self.setMediaAvailable(snapshot != nil && self.settings.widgets.contains(.media))
+            self.compactMedia.update(isPlaying: self.mediaMonitoringEnabled ? snapshot?.isPlaying : nil)
+        }.store(in: &subscriptions)
+        compactMedia.$isVisible.removeDuplicates().sink { [weak self] visible in
+            self?.setMediaAvailable(visible)
         }.store(in: &subscriptions)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -156,6 +161,8 @@ final class IslandController: NSObject {
 
     func hide() {
         panel.orderOut(nil)
+        mediaMonitoringEnabled = false
+        compactMedia.update(isPlaying: nil)
         media.stop()
         state.hasMedia = false
         state.mediaProgress = 0
@@ -390,12 +397,13 @@ final class IslandController: NSObject {
     private var mediaTarget: Double { state.hasMedia ? 1 : 0 }
 
     private func updateMediaMonitoring(widgets: [WidgetKind]) {
-        if panel.isVisible && widgets.contains(.media) {
+        mediaMonitoringEnabled = panel.isVisible && widgets.contains(.media)
+        if mediaMonitoringEnabled {
             media.start()
-            setMediaAvailable(media.snapshot != nil)
+            compactMedia.update(isPlaying: media.snapshot?.isPlaying)
         } else {
+            compactMedia.update(isPlaying: nil)
             media.stop()
-            setMediaAvailable(false)
         }
     }
 

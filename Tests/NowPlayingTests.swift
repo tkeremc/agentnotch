@@ -11,7 +11,9 @@ struct NowPlayingTests {
         ("media skip restrictions and invalid times are sanitized", restrictions),
         ("missing media bridge disables transport without starting a player", missingBridge),
         ("media bridge routes transport and can restart after cleanup", bridgeIPC),
-        ("exited media bridge cannot resurrect a queued snapshot", exitedBridge)
+        ("exited media bridge cannot resurrect a queued snapshot", exitedBridge),
+        ("compact media hides ten seconds after pause despite metadata refreshes", compactPause),
+        ("resuming or clearing media cancels the pending compact hide", compactResume)
     ]
 
     private struct Failure: Error { let message: String }
@@ -146,6 +148,45 @@ struct NowPlayingTests {
             try expect(store.availability == .unavailable && store.snapshot == nil && !store.canControl,
                        "exited stream must not restore stale metadata")
         }
+    }
+
+    private static func compactPause() throws {
+        let visibility = CompactMediaVisibility()
+        visibility.update(isPlaying: true)
+        visibility.update(isPlaying: false)
+        let start = Date()
+        while Date().timeIntervalSince(start) < 9.5 {
+            try expect(visibility.isVisible, "paused media must remain visible for the full grace period")
+            visibility.update(isPlaying: false)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        let deadline = start.addingTimeInterval(11.5)
+        while visibility.isVisible && Date() < deadline {
+            visibility.update(isPlaying: false)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        try expect(!visibility.isVisible, "metadata polling must not postpone the ten-second hide")
+        try expect(Date().timeIntervalSince(start) >= 9.95, "default grace period is ten seconds")
+        visibility.update(isPlaying: false)
+        try expect(!visibility.isVisible, "later paused metadata must not redisplay the compact artwork")
+        visibility.update(isPlaying: true)
+        try expect(visibility.isVisible, "resuming immediately redisplays compact media")
+    }
+
+    private static func compactResume() throws {
+        let visibility = CompactMediaVisibility(pauseDelay: .milliseconds(80))
+        visibility.update(isPlaying: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+        visibility.update(isPlaying: true)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        try expect(visibility.isVisible, "old pause timeout must not hide resumed playback")
+        visibility.update(isPlaying: false)
+        visibility.update(isPlaying: nil)
+        try expect(!visibility.isVisible, "removing media or hiding the panel clears the compact state")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        visibility.update(isPlaying: false)
+        try expect(visibility.isVisible, "a new paused session gets its own grace period")
+        visibility.update(isPlaying: nil)
     }
 
     private static func missingBridge() throws {

@@ -21,7 +21,9 @@ Xcode proje dosyası, kaynaklar ve kaynak görseller bu Git deposunun içindedir
 Sistemin Şu An Çalınan bilgisine katılan müzik ve video uygulamalarını otomatik
 izler; Music, Spotify ve tarayıcıların paylaştığı medya oturumları bu kaynağı
 kullanabilir. Çentik kapalıyken kapak için yalnız sola 44 pt genişler. Kapağa
-tıklamak ana sayfayı açar. Açık kartta başlık, sanatçı/kanal, kaynak uygulama,
+tıklamak ana sayfayı açar. Oynatma duraklatıldığında küçük kapak 10 saniye
+sonra animasyonla çentiğin içine çekilir; oynatma sürdürülünce geri gelir.
+Duraklatılmış parça ve kontroller açık çekmecede kalır. Açık kartta başlık, sanatçı/kanal, kaynak uygulama,
 süre ve önceki–oynat/duraklat–sonraki düğmeleri bulunur. Medya kaynağı kapak
 paylaşmıyorsa müzik simgesi gösterilir; bilinmeyen süre uydurulmaz.
 
