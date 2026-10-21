@@ -6,6 +6,7 @@ struct IslandView: View {
     @ObservedObject var shelf: FileShelfStore
     @ObservedObject var media: NowPlayingStore
     @ObservedObject var codex: CodexStore
+    @ObservedObject var claude: ClaudeStore
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -67,7 +68,7 @@ struct IslandView: View {
         if state.expanded || state.contentProgress > 0 {
             ZStack(alignment: .top) {
                 if state.page == .home || state.pageProgress < 1 {
-                    WidgetDrawerView(state: state, settings: settings, media: media, codex: codex)
+                    WidgetDrawerView(state: state, settings: settings, media: media, codex: codex, claude: claude)
                         .frame(width: state.layout.width, height: state.layout.contentHeight)
                         .opacity(Double(state.homePageOpacity))
                         .allowsHitTesting(state.page == .home && state.homePageOpacity > 0.9)
@@ -143,6 +144,8 @@ struct IslandView: View {
     private var compactCodexAlert: some View {
         HStack(spacing: 0) {
             ForEach(state.codexCompactAgents) { agent in
+                let statusTitle = settings.localization.text(agent.iconName == "ClaudeMark" && agent.indicator == .connectionIssue
+                    ? .claudeRepairHint : agent.indicator.title)
                 Button { state.openCodex?() } label: {
                     CompactAgentMark(iconName: agent.iconName, foreground: settings.foregroundColor,
                         background: settings.backgroundColor, statusSymbol: agent.indicator.symbol,
@@ -154,8 +157,8 @@ struct IslandView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(agent.name) · \(settings.localization.text(agent.indicator.title))")
-                .accessibilityLabel("\(agent.name) · \(settings.localization.text(agent.indicator.title))")
+                .help("\(agent.name) · \(statusTitle)")
+                .accessibilityLabel("\(agent.name) · \(statusTitle)")
             }
         }
         .frame(width: state.codexWingWidth, alignment: .leading)

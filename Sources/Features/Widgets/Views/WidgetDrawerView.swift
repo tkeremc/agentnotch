@@ -6,6 +6,7 @@ struct WidgetDrawerView: View {
     @ObservedObject var settings: NotchSettings
     @ObservedObject var media: NowPlayingStore
     @ObservedObject var codex: CodexStore
+    @ObservedObject var claude: ClaudeStore
     private static let dragType = UTType(exportedAs: "com.local.NotchLab.widget")
 
     var body: some View {
@@ -90,6 +91,9 @@ struct WidgetDrawerView: View {
     @ViewBuilder
     private func widgetContent(_ widget: WidgetKind) -> some View {
         switch widget {
+        case .claude:
+            ClaudeWidgetView(settings: settings, store: claude,
+                             onConnect: { state.openClaudeSettings?() })
         case .codex:
             CodexWidgetView(settings: settings, store: codex,
                             onConnect: { state.openCodexSettings?() })

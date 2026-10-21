@@ -291,3 +291,44 @@ dosyasındadır. Bu testler ayrı betikle çalışır; Xcode'da XCTest hedefi yo
 
 İkon kaynakları ve yeniden üretim komutu [Branding/README.md](Branding/README.md)
 dosyasındadır. Üretilen ikonlar `Resources/Assets.xcassets` içine yazılır.
+
+## Claude widget’ı
+
+Widget kataloğundan **Claude** eklenebilir. Codex ile aynı düzeni kullanır;
+5 saatlik/haftalık kalan kota, yenilenme zamanı, ana/alt ajanlar ve izin
+bekleme durumları gösterilir. Claude simgeleri kapalı çentiğin sağında görünür.
+Türkçe ve İngilizce desteklenir. Ek giriş veya API anahtarı gerekmez.
+
+Mevcut Claude Code oturumları yerel süreç kimliğiyle doğrulanan metadata’dan
+salt okunur izlenir. Ayrıntılı alt ajan ve kota takibi için karttaki **Bağlan**
+düğmesinden **Claude bağlantısı** ayarına git ve bağlantıyı etkinleştir.
+Sonra yeni bir Claude Code oturumu başlatıp mesaj gönder. Kota, desteklenen
+aboneliklerde ilk API yanıtından sonra Claude’un `statusLine` verisiyle gelir;
+API/Bedrock/Vertex gibi kaynaklarda bu abonelik kotası bulunmayabilir.
+Proje veya yönetilen ayarlar kullanıcı düzeyi bağlantıyı geçersiz kılabilir.
+
+Bağlantı yalnız `~/.claude/settings.json` içine agentnotch hook’larını ve
+mevcut durum çubuğunu saran bir komut ekler; önceki durum çubuğunun ayarları,
+girdisi ve normal çıktısı korunur. Takılan durum çubuğu komutu iki saniyede
+sonlandırılır. **Bağlantıyı kaldır**, yalnız kendi hook’larını siler ve önceki
+durum çubuğunu geri getirir; sonradan seçilmiş bağımsız durum çubuğunu korur.
+Uygulama taşınır veya helper güncellenirse **Bağlantıyı onar** kullanılabilir.
+Widget’ı kaldırmak izlemeyi durdurur; hook bağlantısını ayarlardan ayrıca
+kaldırabilirsin.
+
+Kimlik bilgileri, API anahtarları veya sohbet içerikleri okunmaz. Ağ isteği
+yapılmaz. Olay kaydı yalnız oturum/ajan kimliği, proje klasörü adı, araç adı,
+izin eşleştirmesi için araç girdisinin SHA-256 özeti ve durum/kota alanları
+barındırır; komutlar ve araç çıktıları kaydedilmez. Olaylar yedi gün / 4096
+kayıtla sınırlanır. Claude’un özel `sessions` metadata formatı değişirse
+bilinmeyen durum gösterilir; statusline çağrısı tek başına çalışıyor kanıtı
+sayılmaz. Süresi dolan veya 15 dakikadan eski kota güncel yüzde gibi sunulmaz.
+
+`CLAUDE_CONFIG_DIR` başlangıç ortamında tanımlıysa dikkate alınır. Sandboxed
+uygulamanın otomatik erişimi standart `~/.claude/sessions/` ve yalnız
+`settings.json` / `agentnotch/` yazma yollarıyla sınırlıdır; özel dizinlerde
+macOS erişimi yoksa bağlantı hata durumu gösterilir. `projects/`, geçmiş
+sohbetler ve kimlik dosyaları için erişim istisnası eklenmez.
+
+Araştırma, resmî kaynaklar ve veri sınırları:
+[Claude araştırma notu](Research/ClaudeReadOnly/README.md).

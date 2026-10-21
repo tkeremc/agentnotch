@@ -154,3 +154,53 @@ sandbox uygulamasının kurduğu komutu dış shell'den çalıştırarak olay te
 kontrol eder. Ana/alt ajan ilişkisi, fork geçmişi, yeniden görevlendirme, geciken
 eski tur olayları, terminal hata, tool hatası, uzun iş heartbeat'i ve hook öncesi
 salt okunur çalışma görünürlüğü regression kapsamındadır.
+
+## Claude widget
+
+```sh
+AGENTNOTCH_TEST_SCOPE=claude bash Tests/run.sh
+/bin/sh Research/ClaudeReadOnly/render.sh /tmp/agentnotch-claude-visual
+python3 Research/ClaudeReadOnly/sandbox-hooks-probe.py
+```
+
+The component runner exercises both providers and EN/TR localization, compiles
+and runs the shipping Claude native helper, and supplies
+`AGENTNOTCH_TEST_CLAUDE_HELPER` to the helper → spool → production store fixture.
+It never modifies real Claude settings, installs real hooks, reads credentials,
+or submits a paid Claude request. Full `bash Tests/run.sh` also checks widget
+persistence/reordering and combined compact-wing geometry.
+
+Claude fixtures cover missing/invalid/expired usage, isolated session and child
+identity, duplicate/out-of-order lifecycle events, permission-tool correlation,
+notification fallback, long-lived native-process-verified registry states,
+PID reuse, denial/interrupt reconciliation, preservation of unrelated hooks,
+existing statusline stdin/stdout/options, safe disconnect after replacement,
+malformed/symlink settings, moved app repair, bounded spool and command timeout.
+
+The render harness uses production SwiftUI presentation with synthetic data in
+both languages. With no CLI arguments the preview app also opens a window for
+checking actual scroll content. GUI/WindowServer access may be unavailable in a
+restricted shell; build with `AGENTNOTCH_RENDER_BUILD_ONLY=1` and open the preview
+app in the desktop session. `ImageRenderer` snapshots and the window use the same
+card. The isolated signed sandbox probe tests the exact settings-file/own-directory
+grants, external-shell hook delivery, and denied credential access.
+
+Manual check: add Claude beside Codex, connect in settings, start a new Claude
+Code session and send a message. Confirm both quota windows when the plan supplies
+them, a real subagent, permission accept/reject, Escape during work, background
+shell work and a closed terminal. Confirm an existing custom statusline still
+renders. Disconnect and start a new session to verify restoration. Managed/project
+settings, old Claude versions and unavailable quota must remain explicit unknown
+states. Synthetic tests cannot prove these live client behaviors.
+
+`AGENTNOTCH_TEST_SCOPE=desktop bash Tests/run.sh` runs the complete test list while
+omitting only app entry/settings macro sources from the test library. This is
+useful in shells that cannot start SwiftUI macro plugins; a full Xcode app build
+must accompany it. The latest observed outcomes are recorded in
+[Claude validation](../Research/ClaudeReadOnly/VALIDATION.md).
+
+For an isolated desktop-launchable sandbox probe, build with
+`AGENTNOTCH_PROBE_BUILD_ONLY=1 python3 Research/ClaudeReadOnly/sandbox-hooks-probe.py`.
+Open the printed application in the desktop session: its window shows each check
+and `agentnotch/probe-results.txt` inside the printed fixture records the results.
+This mode performs no real Claude installation.

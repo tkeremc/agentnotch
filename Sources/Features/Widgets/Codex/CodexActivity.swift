@@ -96,7 +96,7 @@ struct CodexHookEvent: Codable, Equatable {
 }
 
 enum CodexAgentStatus: String, Equatable {
-    case working, approvalRequested, finished, interrupted, failed, unknown
+    case working, approvalRequested, finished, interrupted, failed, unknown, idle
 }
 
 struct CodexAgentSnapshot: Identifiable, Equatable {

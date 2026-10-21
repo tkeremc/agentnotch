@@ -54,6 +54,7 @@ final class IslandState: ObservableObject {
     var holdsOpen: Bool { isEditingWidgets || isIncomingDrag || isOutgoingDrag }
     var openSettings: (() -> Void)?
     var openCodexSettings: (() -> Void)?
+    var openClaudeSettings: (() -> Void)?
     var editingChanged: (() -> Void)?
     var pageChanged: (() -> Void)?
     var filesDropped: (([URL]) -> Bool)?

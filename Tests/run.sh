@@ -36,12 +36,18 @@ ARCHS="$architecture" /bin/sh "$source_root/Native/build-codex-bridge.sh"
 python3 -B "$source_root/Tests/CodexHookBridgeTests.py" \
     "$test_build/Resources/Codex/agentnotch-codex-hook"
 
+AGENTNOTCH_SOURCE_ROOT="$source_root" TARGET_BUILD_DIR="$test_build" \
+UNLOCALIZED_RESOURCES_FOLDER_PATH="Resources" DERIVED_FILE_DIR="$test_build/Derived" \
+ARCHS="$architecture" /bin/sh "$source_root/Native/build-claude-bridge.sh"
+python3 -B "$source_root/Tests/ClaudeHookBridgeTests.py" \
+    "$test_build/Resources/Claude/agentnotch-claude-hook"
+
 # Component scope validates Codex and the notch views without launching the
 # settings macro compiler or unrelated desktop/pasteboard tests.
 test_scope="${AGENTNOTCH_TEST_SCOPE:-all}"
 production_sources=()
 while IFS= read -r -d '' source_file; do
-    if [ "$test_scope" = "codex" ]; then
+    if [ "$test_scope" = "codex" ] || [ "$test_scope" = "claude" ] || [ "$test_scope" = "desktop" ]; then
         case "$source_file" in
             */NotchSettingsView.swift|*/AppDelegate.swift|*/AgentNotchApp.swift) continue ;;
         esac
@@ -64,7 +70,7 @@ xcrun swiftc -parse-as-library -emit-library -emit-module -enable-testing \
     -o "$test_build/libAgentNotch.dylib"
 
 test_sources=("$source_root/Tests/"*.swift)
-if [ "$test_scope" = "codex" ]; then
+if [ "$test_scope" = "codex" ] || [ "$test_scope" = "claude" ]; then
     cat > "$test_build/CodexTestsMain.swift" <<'SWIFT'
 import Foundation
 import Darwin
@@ -73,6 +79,7 @@ import Darwin
     static func main() {
         let cases = CodexActivityTests.cases + CodexUsageTests.cases
             + CodexHookInstallerTests.cases + CodexStoreTests.cases + LocalizationTests.cases
+            + ClaudeActivityTests.cases + ClaudeStoreTests.cases + ClaudeHookInstallerTests.cases
         var failures = 0
         for (name, test) in cases {
             do { try test(); print("PASS: \(name)") }
@@ -85,7 +92,9 @@ import Darwin
 SWIFT
     test_sources=("$source_root/Tests/CodexActivityTests.swift" "$source_root/Tests/CodexUsageTests.swift"
         "$source_root/Tests/CodexHookInstallerTests.swift" "$source_root/Tests/CodexStoreTests.swift"
-        "$source_root/Tests/LocalizationTests.swift" "$test_build/CodexTestsMain.swift")
+        "$source_root/Tests/LocalizationTests.swift" "$source_root/Tests/ClaudeActivityTests.swift"
+        "$source_root/Tests/ClaudeStoreTests.swift" "$source_root/Tests/ClaudeHookInstallerTests.swift"
+        "$test_build/CodexTestsMain.swift")
 fi
 
 xcrun swiftc -parse-as-library -sdk "$sdk_path" -target "$target" \
@@ -96,5 +105,6 @@ xcrun swiftc -parse-as-library -sdk "$sdk_path" -target "$target" \
 
 AGENTNOTCH_TEST_LOCALIZATION_BUNDLE="$test_build/Localization.bundle" \
 AGENTNOTCH_TEST_LOCALIZATION_CATALOG="$source_root/Resources/Localizable.xcstrings" \
+AGENTNOTCH_TEST_CLAUDE_HELPER="$test_build/Resources/Claude/agentnotch-claude-hook" \
 AGENTNOTCH_TEST_CODEX_HELPER="$test_build/Resources/Codex/agentnotch-codex-hook" \
     "$test_build/WidgetTests"

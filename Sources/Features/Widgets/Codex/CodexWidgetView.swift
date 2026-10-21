@@ -22,6 +22,7 @@ struct CodexWidgetView: View {
 /// with synthetic data, without installing hooks or running a Codex task.
 struct CodexWidgetContent: View {
     @ObservedObject var settings: NotchSettings
+    var isClaude = false
     var usage: CodexUsageSnapshot?
     var availability: CodexUsageAvailability = .noData
     var agents: [CodexAgentSnapshot] = []
@@ -35,7 +36,9 @@ struct CodexWidgetContent: View {
 
     private var text: AppLocalization { settings.localization }
     private var foreground: Color { settings.foregroundColor }
-    private let accent = Color(red: 0.50, green: 0.85, blue: 0.67)
+    private var accent: Color { isClaude
+        ? Color(red: 0.89, green: 0.62, blue: 0.47)
+        : Color(red: 0.50, green: 0.85, blue: 0.67) }
     private var active: [CodexAgentSnapshot] {
         agents.filter { $0.status == .working || $0.status == .approvalRequested }
     }
@@ -74,11 +77,11 @@ struct CodexWidgetContent: View {
 
     private var header: some View {
         HStack(spacing: 9) {
-            Image("GPTMark")
+            Image(isClaude ? "ClaudeMark" : "GPTMark")
                 .resizable().scaledToFit()
                 .frame(width: 18, height: 18)
                 .frame(width: 22, height: 22)
-            Text("Codex").font(.system(size: 14, weight: .semibold))
+            Text(isClaude ? "Claude" : "Codex").font(.system(size: 14, weight: .semibold))
             if let plan = usage?.planType, ["plus", "pro", "team", "business", "enterprise", "free", "edu"].contains(plan.lowercased()) {
                 Text(plan.capitalized)
                     .font(.system(size: 9, weight: .medium))
@@ -104,10 +107,10 @@ struct CodexWidgetContent: View {
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 Text(text.text(availability == .ambiguousAccounts ? .codexAmbiguousAccount
-                    : availability == .permissionDenied ? .codexAccessRequired : .codexNoQuota))
+                    : availability == .permissionDenied ? (isClaude ? .claudeAccessRequired : .codexAccessRequired) : (isClaude ? .claudeNoQuota : .codexNoQuota)))
                     .font(.system(size: 10, weight: .medium))
                     .fixedSize(horizontal: false, vertical: true)
-                Text(text.text(.codexNoQuotaHint))
+                Text(text.text(isClaude ? .claudeNoQuotaHint : .codexNoQuotaHint))
                     .font(.system(size: 9)).foregroundStyle(foreground.opacity(0.45))
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -174,16 +177,16 @@ struct CodexWidgetContent: View {
                     if approvals.count > 1 { Text("+\(approvals.count - 1)").foregroundStyle(.orange) }
                 }
                 .font(.system(size: 9))
-                .help(approval.summary ?? text.text(.codexPermissionDescription))
+                .help(approval.summary ?? text.text(isClaude ? .claudePermissionDescription : .codexPermissionDescription))
             }
             if visibleAgents.isEmpty {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(text.text(connection == .repairRequired ? .codexRepairHint
-                        : connection == .notInstalled ? .codexConnectDescription
-                        : connection == .waitingForEvents ? .codexWaitingForEvents : .codexNoAgents))
+                    Text(text.text(connection == .repairRequired ? (isClaude ? .claudeRepairHint : .codexRepairHint)
+                        : connection == .notInstalled ? (isClaude ? .claudeConnectDescription : .codexConnectDescription)
+                        : connection == .waitingForEvents ? (isClaude ? .claudeWaitingForEvents : .codexWaitingForEvents) : .codexNoAgents))
                         .font(.system(size: 10)).fixedSize(horizontal: false, vertical: true)
                     if connection == .waitingForEvents {
-                        Link(text.text(.codexTrustHelp), destination: URL(string: "https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks")!)
+                        Link(text.text(isClaude ? .claudeTrustHelp : .codexTrustHelp), destination: URL(string: isClaude ? "https://code.claude.com/docs/en/hooks" : "https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks")!)
                             .font(.system(size: 9))
                     }
                 }
@@ -232,23 +235,23 @@ struct CodexWidgetContent: View {
             if let connectionFailure {
                 Text(text.text(connectionFailure)).foregroundStyle(.orange)
             } else if connection == .repairRequired {
-                Text(text.text(.codexRepairHint)).foregroundStyle(.orange)
+                Text(text.text(isClaude ? .claudeRepairHint : .codexRepairHint)).foregroundStyle(.orange)
             } else if connection == .waitingForEvents {
-                Text(text.text(.codexTrustHint)).foregroundStyle(foreground.opacity(0.5))
-                    .help(text.text(.codexTrustHint))
+                Text(text.text(isClaude ? .claudeTrustHint : .codexTrustHint)).foregroundStyle(foreground.opacity(0.5))
+                    .help(text.text(isClaude ? .claudeTrustHint : .codexTrustHint))
             } else if connection == .unavailable {
-                Text(text.text(.codexConnectionFailed)).foregroundStyle(.orange)
+                Text(text.text(isClaude ? .claudeConnectionFailed : .codexConnectionFailed)).foregroundStyle(.orange)
             } else if availability == .permissionDenied {
-                Text(text.text(.codexAccessRequired)).foregroundStyle(.orange)
+                Text(text.text(isClaude ? .claudeAccessRequired : .codexAccessRequired)).foregroundStyle(.orange)
             } else if let usage {
                 Text(now.timeIntervalSince(usage.observedAt) < 60 ? text.text(.codexUpdatedNow)
                     : text.text(.codexLastUpdate, duration(now.timeIntervalSince(usage.observedAt))))
                     .foregroundStyle(now.timeIntervalSince(usage.observedAt) > 600 ? Color.orange : foreground.opacity(0.3))
-            } else { Text(text.text(.codexHistory)).foregroundStyle(foreground.opacity(0.3)) }
+            } else { Text(text.text(isClaude ? .claudeHistory : .codexHistory)).foregroundStyle(foreground.opacity(0.3)) }
             Spacer(minLength: 0)
             Button(action: onRetry) { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.plain).foregroundStyle(foreground.opacity(0.4))
-                .help(text.text(.codexRetry)).accessibilityLabel(text.text(.codexRetry))
+                .help(text.text(isClaude ? .claudeRetry : .codexRetry)).accessibilityLabel(text.text(isClaude ? .claudeRetry : .codexRetry))
         }
         .font(.system(size: 9))
         .lineLimit(1)
@@ -288,6 +291,7 @@ struct CodexWidgetContent: View {
         case .interrupted: return .codexInterrupted
         case .failed: return .codexFailed
         case .unknown: return .codexUnknown
+        case .idle: return .claudeIdle
         }
     }
 

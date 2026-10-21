@@ -12,10 +12,13 @@
     <array>
         <string>/.codex/sessions/</string>
         <string>/.codex/session_index.jsonl</string>
+        <string>/.claude/sessions/</string>
     </array>
     <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
     <array>
         <string>/.codex/hooks.json</string>
+        <string>/.claude/settings.json</string>
+        <string>/.claude/agentnotch/</string>
         <string>/.codex/agentnotch/</string>
     </array>
     <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>

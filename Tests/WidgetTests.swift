@@ -23,6 +23,7 @@ struct WidgetTests {
             ("single-widget reorder is safe", reordering),
             ("media extends only to the left and clears on expansion", mediaGeometry),
             ("media widget persists and keeps user selections", mediaPersistence),
+            ("Claude and Codex persist independently and fit the agent wing", claudeIntegration),
             ("Turkish clock follows supplied timezone", clock),
             ("file drag switches page and restores on cancel", fileDragState),
             ("page transition geometry stays continuous", pageGeometry),
@@ -30,7 +31,8 @@ struct WidgetTests {
             ("cancelled file drag restores page only after collapse", deferredDragRestoration)
         ] + FileShelfTests.cases + FileShelfDragTests.cases + LocalizationTests.cases + NowPlayingTests.cases
           + CodexActivityTests.cases + CodexUsageTests.cases + CodexHookInstallerTests.cases
-          + CodexStoreTests.cases
+          + CodexStoreTests.cases + ClaudeActivityTests.cases + ClaudeStoreTests.cases
+          + ClaudeHookInstallerTests.cases
         var failures = 0
         for (name, test) in tests {
             do {
@@ -402,6 +404,40 @@ struct WidgetTests {
             try expect(result.items[0].frame.width == 414 && result.items[0].widgetHeight == 180,
                        "media owns a wide card that leaves room for transport controls")
         }
+    }
+
+    private static func claudeIntegration() throws {
+        try withDefaults { defaults in
+            defaults.set(["clock", "codex"], forKey: "island.widgets")
+            let settings = NotchSettings(defaults: defaults)
+            settings.addWidget(.claude)
+            settings.addWidget(.claude)
+            try expect(NotchSettings(defaults: defaults).widgets == [.clock, .codex, .claude],
+                       "adding Claude preserves existing choices without duplicates")
+            settings.moveWidget(.claude, to: 0)
+            try expect(NotchSettings(defaults: defaults).widgets == [.claude, .clock, .codex],
+                       "Claude order persists")
+            settings.removeWidget(.claude)
+            try expect(NotchSettings(defaults: defaults).widgets == [.clock, .codex],
+                       "removing Claude leaves Codex configured")
+            let result = layout([WidgetKind.codex.descriptor, WidgetKind.claude.descriptor])
+            try expect(result.items.allSatisfy { $0.frame.width == 414 && $0.widgetHeight == 180 },
+                       "both provider cards use their normal two-column geometry")
+        }
+        let state = IslandState()
+        state.codexCompactAgents = [
+            CodexCompactAgent(id: "codex:same", name: "Codex", indicator: .working),
+            CodexCompactAgent(id: "claude:same", name: "Claude", indicator: .approval, iconName: "ClaudeMark")]
+        state.hasCodexAlert = true
+        state.codexAlertProgress = 1
+        state.codexSlotsProgress = 2
+        try expect(state.codexWingWidth == 56, "provider indicators reserve separate slots")
+        for frame in 0...60 {
+            state.progress = CGFloat(frame) / 60
+            let right = state.surfaceOffsetX + state.surfaceWidth / 2
+            try expect(right <= state.canvasSize.width / 2, "combined indicators fit the native canvas")
+        }
+        try expect(state.codexWingWidth == 0, "provider wing retracts after expansion")
     }
 
     private static func clock() throws {

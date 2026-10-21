@@ -9,6 +9,7 @@ final class IslandController: NSObject {
     private let shelf = FileShelfStore()
     private let media = NowPlayingStore()
     private let codex: CodexStore
+    private let claude: ClaudeStore
     private let compactMedia = CompactMediaVisibility()
     private var mediaMonitoringEnabled = false
     private let settings: NotchSettings
@@ -33,10 +34,12 @@ final class IslandController: NSObject {
     private var dragPasteboardBaseline = 0
     private var releasePending: Task<Void, Never>?
 
-    init(settings: NotchSettings, codex: CodexStore, openCodexSettings: (() -> Void)? = nil,
+    init(settings: NotchSettings, codex: CodexStore, claude: ClaudeStore,
+         openCodexSettings: (() -> Void)? = nil, openClaudeSettings: (() -> Void)? = nil,
          openSettings: @escaping () -> Void) {
         self.settings = settings
         self.codex = codex
+        self.claude = claude
         panel = IslandPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -46,6 +49,7 @@ final class IslandController: NSObject {
         super.init()
         state.openSettings = openSettings
         state.openCodexSettings = openCodexSettings ?? openSettings
+        state.openClaudeSettings = openClaudeSettings ?? openSettings
         state.openCodex = { [weak self] in
             guard let self else { return }
             self.state.selectPage(.home)
@@ -102,7 +106,7 @@ final class IslandController: NSObject {
         panel.animationBehavior = .none
 
         positionOnScreen()
-        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf, media: media, codex: codex))
+        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf, media: media, codex: codex, claude: claude))
         // The controller owns the panel's size. SwiftUI's automatic window
         // min/max constraints otherwise feed animated layout back into AppKit.
         view.sizingOptions = []
@@ -141,13 +145,18 @@ final class IslandController: NSObject {
         compactMedia.$isVisible.removeDuplicates().sink { [weak self] visible in
             self?.setMediaAvailable(visible)
         }.store(in: &subscriptions)
-        codex.$compactAgents.removeDuplicates().sink { [weak self] agents in
+        codex.$compactAgents.combineLatest(claude.$compactAgents).sink { [weak self] codexAgents, claudeAgents in
             guard let self else { return }
+            let agents = codexAgents.map { value in
+                CodexCompactAgent(id: "codex:" + value.id, name: value.name,
+                                  indicator: value.indicator, iconName: value.iconName)
+            } + claudeAgents.map { value in
+                CodexCompactAgent(id: "claude:" + value.id, name: value.name,
+                                  indicator: value.indicator, iconName: "ClaudeMark")
+            }
             let previousCount = self.state.codexCompactAgents.count
             self.state.codexCompactAgents = agents
             self.state.codexIndicator = agents.first?.indicator ?? .none
-            // Grow the fixed transparent canvas before the surface expands.
-            // Keep its larger size through removal so closing icons cannot clip.
             if agents.count > previousCount { self.updateDrawerLayout(widgets: self.settings.widgets) }
             self.setCodexAlertAvailable(!agents.isEmpty)
         }.store(in: &subscriptions)
@@ -188,6 +197,7 @@ final class IslandController: NSObject {
         compactMedia.update(isPlaying: nil)
         media.stop()
         codex.stop()
+        claude.stop()
         state.hasCodexAlert = false
         state.codexAlertProgress = 0
         state.codexSlotsProgress = 0
@@ -451,11 +461,13 @@ final class IslandController: NSObject {
 
     private func updateCodexMonitoring(widgets: [WidgetKind]) {
         if panel.isVisible && widgets.contains(.codex) { codex.start() }
-        else { codex.stop(); setCodexAlertAvailable(false) }
+        else { codex.stop() }
+        if panel.isVisible && widgets.contains(.claude) { claude.start() }
+        else { claude.stop() }
     }
 
     private func setCodexAlertAvailable(_ available: Bool) {
-        let available = available && panel.isVisible && settings.widgets.contains(.codex)
+        let available = available && panel.isVisible && (settings.widgets.contains(.codex) || settings.widgets.contains(.claude))
         let changed = state.hasCodexAlert != available
         state.hasCodexAlert = available
         guard changed || codexMotion.progress != codexTarget || codexMotion.velocity != 0 else { return }

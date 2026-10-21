@@ -6,6 +6,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let settings = NotchSettings()
     let codex = CodexStore()
+    let claude = ClaudeStore()
     private let settingsNavigation = SettingsNavigation()
     var island: IslandController?
     private var settingsWindow: NSWindowController?
@@ -19,8 +20,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        island = IslandController(settings: settings, codex: codex,
-            openCodexSettings: { [weak self] in self?.showCodexSettings() }
+        island = IslandController(settings: settings, codex: codex, claude: claude,
+            openCodexSettings: { [weak self] in self?.showCodexSettings() },
+            openClaudeSettings: { [weak self] in self?.showClaudeSettings() }
         ) { [weak self] in self?.showSettings() }
         if settings.isEnabled { island?.show() }
     }
@@ -29,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         island?.setSettingsPresented(true)
         if settingsWindow == nil {
             let window = NSWindow(contentViewController: NSHostingController(
-                rootView: NotchSettingsView(settings: settings, codex: codex, navigation: settingsNavigation)
+                rootView: NotchSettingsView(settings: settings, codex: codex, claude: claude, navigation: settingsNavigation)
             ))
             window.title = settings.localization.text(.settingsTitle)
             window.styleMask = [.titled, .closable, .miniaturizable]
@@ -48,6 +50,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showCodexSettings() {
         showSettings()
         settingsNavigation.focusCodex()
+    }
+
+    private func showClaudeSettings() {
+        showSettings()
+        settingsNavigation.focusClaude()
     }
 
     func windowWillClose(_ notification: Notification) {

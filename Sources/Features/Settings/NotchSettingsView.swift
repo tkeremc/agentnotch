@@ -3,15 +3,19 @@ import SwiftUI
 @MainActor
 final class SettingsNavigation: ObservableObject {
     @Published private(set) var codexRequest: UUID?
+    @Published private(set) var claudeRequest: UUID?
 
-    func focusCodex() { codexRequest = UUID() }
+    func focusCodex() { codexRequest = UUID(); claudeRequest = nil }
+    func focusClaude() { claudeRequest = UUID(); codexRequest = nil }
 }
 
 struct NotchSettingsView: View {
     @ObservedObject var settings: NotchSettings
     @ObservedObject var codex: CodexStore
+    @ObservedObject var claude: ClaudeStore
     @ObservedObject var navigation: SettingsNavigation
     @State private var confirmsDisconnect = false
+    @State private var confirmsClaudeDisconnect = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,6 +92,33 @@ struct NotchSettingsView: View {
                         }
                     }
                     .id("codex-connection")
+                    Section(settings.localization.text(.claudeIntegrationTitle)) {
+                        Text(settings.localization.text(.claudeIntegrationPrivacy))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if claude.connection == .notInstalled || claude.connection == .repairRequired {
+                            Button(settings.localization.text(claude.connection == .repairRequired ? .claudeRepair : .claudeConnect)) {
+                                claude.connect(localization: settings.localization)
+                            }
+                            .disabled(claude.isChangingConnection)
+                        } else {
+                            Text(settings.localization.text(claude.connection == .receiving
+                                ? .claudeLinkActive : .claudeWaitingForEvents))
+                                .font(.caption)
+                            Button(settings.localization.text(.claudeDisconnect), role: .destructive) {
+                                confirmsClaudeDisconnect = true
+                            }
+                            .disabled(claude.isChangingConnection)
+                        }
+                        if claude.connection == .repairRequired {
+                            Text(settings.localization.text(.claudeRepairHint))
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                        if let failure = claude.connectionFailure {
+                            Text(settings.localization.text(failure))
+                                .font(.caption).foregroundStyle(.orange)
+                        }
+                    }
+                    .id("claude-connection")
                     Section {
                         Toggle(settings.localization.text(.settingsEnableAnimations), isOn: $settings.animationsEnabled)
                         slider(settings.localization.text(.settingsAnimationSpeed), value: $settings.animationSpeed, range: 0.25...3, step: 0.25,
@@ -106,9 +137,13 @@ struct NotchSettingsView: View {
                 .formStyle(.grouped)
                 .onAppear {
                     if navigation.codexRequest != nil { proxy.scrollTo("codex-connection", anchor: .top) }
+                    if navigation.claudeRequest != nil { proxy.scrollTo("claude-connection", anchor: .top) }
                 }
-                .onChange(of: navigation.codexRequest) { _, _ in
-                    proxy.scrollTo("codex-connection", anchor: .top)
+                .onChange(of: navigation.claudeRequest) { _, request in
+                    if request != nil { proxy.scrollTo("claude-connection", anchor: .top) }
+                }
+                .onChange(of: navigation.codexRequest) { _, request in
+                    if request != nil { proxy.scrollTo("codex-connection", anchor: .top) }
                 }
             }
 
@@ -123,13 +158,20 @@ struct NotchSettingsView: View {
         }
         .frame(width: 540, height: 780)
         .environment(\.locale, settings.localization.locale)
-        .onAppear { codex.refreshConnection() }
+        .onAppear { codex.refreshConnection(); claude.refreshConnection() }
         .confirmationDialog(settings.localization.text(.codexDisconnectQuestion),
                             isPresented: $confirmsDisconnect) {
             Button(settings.localization.text(.codexDisconnect), role: .destructive) { codex.disconnect() }
             Button(settings.localization.text(.codexCancel), role: .cancel) { }
         } message: {
             Text(settings.localization.text(.codexDisconnectDescription))
+        }
+        .confirmationDialog(settings.localization.text(.claudeDisconnectQuestion),
+                            isPresented: $confirmsClaudeDisconnect) {
+            Button(settings.localization.text(.claudeDisconnect), role: .destructive) { claude.disconnect() }
+            Button(settings.localization.text(.claudeCancel), role: .cancel) { }
+        } message: {
+            Text(settings.localization.text(.claudeDisconnectDescription))
         }
     }
 
