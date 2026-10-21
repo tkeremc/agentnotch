@@ -8,6 +8,7 @@ struct NowPlayingTests {
         ("media timeline follows playing, paused and unknown duration", timeline),
         ("media messages clear ended sessions and reject malformed input", lifecycle),
         ("media artwork stays with its track", artworkIdentity),
+        ("media artwork survives focus updates with omitted cover and app metadata", artworkFocus),
         ("media skip restrictions and invalid times are sanitized", restrictions),
         ("missing media bridge disables transport without starting a player", missingBridge),
         ("media bridge routes transport and can restart after cleanup", bridgeIPC),
@@ -66,6 +67,20 @@ struct NowPlayingTests {
         try expect(decoder.snapshot?.artwork != nil, "a pause update must not flash artwork")
         _ = try decoder.consume(data(["title": "Second", "artist": "Artist"]))
         try expect(decoder.snapshot?.artwork == nil, "new track must not show previous art")
+        _ = try decoder.consume(data(["title": "First", "trackIdentifier": "item-1",
+                                      "artworkIdentifier": "cover-1", "artworkData": png]))
+        _ = try decoder.consume(data(["title": "Corrected title", "trackIdentifier": "item-1",
+                                      "artworkIdentifier": "cover-1"]))
+        try expect(decoder.snapshot?.artwork != nil, "metadata corrections must preserve the same item's artwork")
+        _ = try decoder.consume(data(["title": "Corrected title", "trackIdentifier": "item-1",
+                                      "artworkIdentifier": "cover-2"]))
+        try expect(decoder.snapshot?.artwork == nil, "changed artwork identity must invalidate old cover")
+        _ = try decoder.consume(data(["title": "Corrected title", "trackIdentifier": "item-1",
+                                      "artworkIdentifier": "cover-2", "artworkData": png]))
+        try expect(decoder.snapshot?.artwork != nil, "delayed artwork must appear when received")
+        _ = try decoder.consume(data(["title": "Corrected title", "trackIdentifier": "item-2",
+                                      "artworkIdentifier": "cover-2"]))
+        try expect(decoder.snapshot?.artwork == nil, "same title and cover ID in a different item must not reuse artwork")
     }
 
     private static func restrictions() throws {
@@ -79,6 +94,37 @@ struct NowPlayingTests {
         try expect(invalid.duration == 0 && invalid.elapsedTime == 0, "nonfinite timeline values")
     }
 
+    private static func artworkFocus() throws {
+        var decoder = NowPlayingDecoder()
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="
+        _ = try decoder.consume(data(["title": "Video", "trackIdentifier": "video-1",
+                                      "processIdentifier": 42, "bundleIdentifier": "com.example.browser",
+                                      "artworkIdentifier": "cover-1", "artworkData": png]))
+        let artwork = decoder.snapshot?.artwork
+        try expect(artwork != nil, "initial cover must decode")
+        _ = try decoder.consume(data(["title": "Video", "trackIdentifier": "video-1",
+                                      "processIdentifier": 42, "playing": true]))
+        try expect(decoder.snapshot?.artwork === artwork,
+                   "focus update must retain the decoded image when bundle and artwork fields are omitted")
+        try expect(decoder.snapshot?.artworkIdentifier == "cover-1", "known cover identity must survive omission")
+        _ = try decoder.consume(data(["title": "Video", "trackIdentifier": "video-1",
+                                      "processIdentifier": 42, "artworkIdentifier": "cover-2"]))
+        try expect(decoder.snapshot?.artwork == nil, "explicit replacement cover must invalidate cached bytes")
+        _ = try decoder.consume(data(["title": "Video", "trackIdentifier": "video-1",
+                                      "processIdentifier": 42, "artworkIdentifier": "cover-2", "artworkData": png]))
+        _ = try decoder.consume(data(["title": "Video", "trackIdentifier": "video-1",
+                                      "processIdentifier": 43]))
+        try expect(decoder.snapshot?.artwork == nil, "a different process must never inherit the previous cover")
+        _ = try decoder.consume(data(["title": "Browser video", "processIdentifier": 42,
+                                      "itemIdentifier": "confirmed-item-1", "artworkData": png]))
+        _ = try decoder.consume(data(["title": "Browser video", "processIdentifier": 42,
+                                      "itemIdentifier": "confirmed-item-1"]))
+        try expect(decoder.snapshot?.artwork != nil, "confirmed item must preserve its cover across updates")
+        _ = try decoder.consume(data(["title": "Browser video", "processIdentifier": 42,
+                                      "itemIdentifier": "confirmed-item-2"]))
+        try expect(decoder.snapshot?.artwork == nil, "new confirmed item must clear a same-title video's old cover")
+    }
+
     private static func bridgeIPC() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AgentNotchMedia-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -86,15 +132,23 @@ struct NowPlayingTests {
         let script = directory.appendingPathComponent("now-playing-bridge.pl")
         try #"""
         use strict;
+        use JSON::PP;
         $| = 1;
-        if ($ARGV[1] eq 'stream') {
-            print "{\"type\":\"ready\"}\n";
-            print "{\"type\":\"data\",\"payload\":{\"title\":\"Integration fixture\",\"playing\":false}}\n";
-            select undef, undef, undef, 15;
-        } else {
+        die "transport must reuse stream" unless $ARGV[1] eq 'stream';
+        print "{\"type\":\"ready\"}\n";
+        print "{\"type\":\"data\",\"payload\":{\"title\":\"Integration fixture\",\"playing\":false}}\n";
+        my $playing = JSON::PP::false;
+        while (my $line = <STDIN>) {
+            my $message = decode_json($line);
             open my $log, '>>', __FILE__ . '.commands' or die $!;
-            print $log "$ARGV[1]\n";
+            print $log "$message->{command}\n";
             close $log;
+            # A stale acknowledgment must not clear outstanding commands.
+            print encode_json({type => 'commandResult', id => 0, accepted => JSON::PP::true}) . "\n";
+            select undef, undef, undef, 0.04;
+            print encode_json({type => 'commandResult', id => $message->{id}, accepted => JSON::PP::true}) . "\n";
+            $playing = !$playing if $message->{command} == 2;
+            print encode_json({type => 'data', payload => {title => 'Integration fixture', playing => $playing ? JSON::PP::true : JSON::PP::false}}) . "\n";
         }
         """#.write(to: script, atomically: true, encoding: .utf8)
         try Data().write(to: directory.appendingPathComponent("NowPlayingBridge.dylib"))
@@ -111,15 +165,18 @@ struct NowPlayingTests {
         try waitUntil { store.canControl }
         try expect(store.snapshot?.title == "Integration fixture", "real process stream reaches the store")
         let commands = URL(fileURLWithPath: script.path + ".commands")
-        for (index, action) in [store.togglePlayPause, store.nextTrack, store.previousTrack].enumerated() {
+        for action in [store.togglePlayPause, store.nextTrack, store.previousTrack] {
             action()
-            try expect(store.isCommandPending, "transport blocks duplicate commands during IPC")
-            try waitUntil { !store.isCommandPending }
-            let lines = try String(contentsOf: commands).split(separator: "\n").map(String.init)
-            try expect(lines.count == index + 1, "each button launches exactly one command")
+            try expect(store.isCommandPending, "command acknowledgment should still be tracked")
+            try expect(store.canControl && store.canPrevious && store.canNext,
+                       "transport must stay enabled while commands await acknowledgment")
         }
-        let commandLog = try String(contentsOf: commands)
-        try expect(commandLog == "2\n4\n5\n", "play/pause and skip command IDs")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.015))
+        try expect(store.isCommandPending, "unrelated command acknowledgment must be ignored")
+        try waitUntil { !store.isCommandPending }
+        try waitUntil { store.snapshot?.isPlaying == true }
+        let commandLog = try String(contentsOf: commands, encoding: .utf8)
+        try expect(commandLog == "2\n4\n5\n", "rapid transport commands must all arrive in order")
         store.stop()
         try expect(store.snapshot == nil && !store.canControl, "stopping clears transport")
         store.start()

@@ -31,6 +31,16 @@ Yeni kurulumda saat ve müzik çalar birlikte gelir. Kayıtlı widget seçimleri
 korunur; mevcut kurulumda üstteki düzenle düğmesinden **Müzik çalar** eklenebilir.
 Widget kaldırıldığında veya çentik gizlendiğinde medya dinleyicisi kapanır.
 Bağlantı kurulamazsa karttaki **Yeniden bağlan** düğmesi yeniden dener.
+Kontroller, başka bir uygulama odaktayken ilk tıklamada çalışır. Komutlar açık
+medya bağlantısından gönderilir; her basışta yeni yardımcı süreç başlatılmaz.
+Kapak normal metadata içinde yoksa sistemin ayrı kapak isteği de denenir;
+geç gelen sonuçlar parça kimliğiyle eşleştirilir.
+Alınan kapak bellekte tutulur. Aynı oturumda pencere odağı değişince eksilen
+metadata alanları kapağı silmez; kaynak, parça veya kapak açıkça değişince
+önceki görsel bırakılır.
+Bilinen sorun: Zen’in sistem medya akışında kapak bulunmayan oturumlarda görsel
+hâlâ görünmeyebilir. Kapak sorunu henüz çözülmüş kabul edilmemelidir; tarayıcı
+adresini okuyarak kapağı indiren ek bir entegrasyon bulunmaz.
 
 Medya katmanı `Sources/Features/Widgets/Media/` içindedir. Xcode, özgün
 `Native/NowPlayingBridge.m` kaynağını derleyip imzalar ve küçük Perl host ile

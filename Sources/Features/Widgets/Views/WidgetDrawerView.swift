@@ -22,6 +22,8 @@ struct WidgetDrawerView: View {
             }
             .padding(.bottom, WidgetDrawerLayout.inset)
         }
+        // Keep a fitted drawer still under trackpad gestures; only overflow scrolls.
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .frame(height: state.layout.viewportHeight)
         .padding(.top, WidgetDrawerLayout.topPadding)
         .foregroundStyle(settings.foregroundColor)

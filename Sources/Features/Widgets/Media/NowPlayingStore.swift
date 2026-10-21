@@ -18,17 +18,28 @@ struct NowPlayingSnapshot {
     var duration: TimeInterval
     var appName: String
     var bundleIdentifier: String
+    var processIdentifier: Int
+    var itemIdentifier: String
+    var trackIdentifier: String
+    var artworkIdentifier: String
     var canPrevious: Bool
     var canNext: Bool
     var timestamp: Date
     var playbackRate: Double
 
-    var id: String { "\(bundleIdentifier)|\(title)|\(artist)|\(album)" }
+    var id: String {
+        let fallback = trackIdentifier.isEmpty ? "\(title)|\(artist)|\(album)" : trackIdentifier
+        let item = itemIdentifier.isEmpty ? fallback : itemIdentifier
+        let source = processIdentifier > 0 ? "pid:\(processIdentifier)" : bundleIdentifier
+        return "\(source)|\(item)"
+    }
 
     init(title: String, artist: String = "", album: String = "", artwork: NSImage? = nil,
          isPlaying: Bool = false, elapsedTime: TimeInterval = 0, duration: TimeInterval = 0,
          appName: String = "", bundleIdentifier: String = "", canPrevious: Bool = true,
-         canNext: Bool = true, timestamp: Date = Date(), playbackRate: Double = 1) {
+         canNext: Bool = true, timestamp: Date = Date(), playbackRate: Double = 1,
+         trackIdentifier: String = "", artworkIdentifier: String = "", processIdentifier: Int = 0,
+         itemIdentifier: String = "") {
         self.title = title
         self.artist = artist
         self.album = album
@@ -38,6 +49,10 @@ struct NowPlayingSnapshot {
         self.duration = duration.isFinite ? max(0, duration) : 0
         self.appName = appName
         self.bundleIdentifier = bundleIdentifier
+        self.processIdentifier = max(0, processIdentifier)
+        self.itemIdentifier = itemIdentifier
+        self.trackIdentifier = trackIdentifier
+        self.artworkIdentifier = artworkIdentifier
         self.canPrevious = canPrevious
         self.canNext = canNext
         self.timestamp = timestamp
@@ -61,8 +76,14 @@ struct NowPlayingDecoder {
     private(set) var snapshot: NowPlayingSnapshot?
 
     mutating func consume(_ data: Data, receivedAt: Date = Date()) throws -> Bool {
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = object["type"] as? String else { throw CocoaError(.coderReadCorrupt) }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw CocoaError(.coderReadCorrupt)
+        }
+        return try consume(object, receivedAt: receivedAt)
+    }
+
+    mutating func consume(_ object: [String: Any], receivedAt: Date = Date()) throws -> Bool {
+        guard let type = object["type"] as? String else { throw CocoaError(.coderReadCorrupt) }
         if type == "ready" { return false }
         guard type == "data", let payload = object["payload"] as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
@@ -84,13 +105,22 @@ struct NowPlayingDecoder {
             canPrevious: !((payload["prohibitsSkip"] as? NSNumber)?.boolValue ?? false),
             canNext: !((payload["prohibitsSkip"] as? NSNumber)?.boolValue ?? false),
             timestamp: timestamp,
-            playbackRate: (payload["playbackRate"] as? NSNumber)?.doubleValue ?? 1
+            playbackRate: (payload["playbackRate"] as? NSNumber)?.doubleValue ?? 1,
+            trackIdentifier: payload["trackIdentifier"] as? String ?? "",
+            artworkIdentifier: payload["artworkIdentifier"] as? String ?? "",
+            processIdentifier: (payload["processIdentifier"] as? NSNumber)?.intValue ?? 0,
+            itemIdentifier: payload["itemIdentifier"] as? String ?? ""
         )
         if let encoded = payload["artworkData"] as? String, encoded.utf8.count <= 24 * 1024 * 1024,
            let artworkData = Data(base64Encoded: encoded) {
             next.artwork = NSImage(data: artworkData)
         }
-        if next.artwork == nil, next.id == snapshot?.id { next.artwork = snapshot?.artwork }
+        if next.artwork == nil, let previous = snapshot, next.id == previous.id {
+            // Focus updates may omit artwork entirely. Absence does not
+            // invalidate a known cover; an explicit replacement ID does.
+            if next.artworkIdentifier.isEmpty { next.artworkIdentifier = previous.artworkIdentifier }
+            if next.artworkIdentifier == previous.artworkIdentifier { next.artwork = previous.artwork }
+        }
         snapshot = next
         return true
     }
@@ -104,13 +134,15 @@ final class NowPlayingStore: ObservableObject {
     @Published private(set) var availability: NowPlayingAvailability = .connecting
     @Published private(set) var isCommandPending = false
 
-    var canControl: Bool { availability == .available && snapshot != nil && !isCommandPending }
+    var canControl: Bool { availability == .available && snapshot != nil }
     var canPrevious: Bool { canControl && snapshot?.canPrevious == true }
     var canNext: Bool { canControl && snapshot?.canNext == true }
 
     private let resourceDirectory: URL?
     private var streamProcess: Process?
-    private var commandProcess: Process?
+    private var streamInput: Pipe?
+    private var commandSequence: UInt = 0
+    private var pendingCommandIDs = Set<UInt>()
     private var streamOutput: Pipe?
     private var streamErrors: Pipe?
     private var decoder = NowPlayingDecoder()
@@ -132,11 +164,14 @@ final class NowPlayingStore: ObservableObject {
         }
         let output = Pipe()
         let errors = Pipe()
+        let input = Pipe()
+        streamInput = input
         streamOutput = output
         streamErrors = errors
         streamProcess = process
         process.standardOutput = output
         process.standardError = errors
+        process.standardInput = input
         // Drain diagnostics so an unsupported OS cannot fill stderr and stall.
         errors.fileHandleForReading.readabilityHandler = { handle in
             if handle.availableData.isEmpty { handle.readabilityHandler = nil }
@@ -178,10 +213,6 @@ final class NowPlayingStore: ObservableObject {
         generation &+= 1
         streamProcess?.terminationHandler = nil
         if streamProcess?.isRunning == true { streamProcess?.terminate() }
-        commandProcess?.terminationHandler = nil
-        if commandProcess?.isRunning == true { commandProcess?.terminate() }
-        commandProcess = nil
-        isCommandPending = false
         cleanUpStream()
         decoder = NowPlayingDecoder()
         snapshot = nil
@@ -193,28 +224,29 @@ final class NowPlayingStore: ObservableObject {
     func previousTrack() { if canPrevious { send(5) } }
 
     private func send(_ command: Int) {
-        guard let process = makeProcess(command: String(command)) else { return }
-        commandProcess = process
+        guard let process = streamProcess, process.isRunning, let streamInput else { return }
+        commandSequence &+= 1
+        let commandID = commandSequence
+        guard var message = try? JSONSerialization.data(withJSONObject: ["command": command, "id": commandID]) else { return }
+        message.append(10)
+        pendingCommandIDs.insert(commandID)
         isCommandPending = true
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        process.terminationHandler = { [weak self] finished in
-            Task { @MainActor [weak self] in
-                guard let self, self.commandProcess === finished else { return }
-                self.commandProcess = nil
-                self.isCommandPending = false
-            }
-        }
         do {
-            try process.run()
+            // Reuse the live bridge so transport does not pay for Perl and
+            // MediaRemote startup on every click. The bridge acknowledges IPC
+            // separately from the subsequent player metadata refresh.
+            try streamInput.fileHandleForWriting.write(contentsOf: message)
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                guard let self, self.commandProcess === process else { return }
+                guard let self, self.pendingCommandIDs.remove(commandID) != nil else { return }
+                self.isCommandPending = !self.pendingCommandIDs.isEmpty
                 if process.isRunning { process.terminate() }
-                self.commandProcess = nil
-                self.isCommandPending = false
             }
         }
-        catch { commandProcess = nil; isCommandPending = false }
+        catch {
+            pendingCommandIDs.remove(commandID)
+            isCommandPending = !pendingCommandIDs.isEmpty
+            if process.isRunning { process.terminate() }
+        }
     }
 
     private func makeProcess(command: String) -> Process? {
@@ -243,7 +275,15 @@ final class NowPlayingStore: ObservableObject {
             buffer.removeSubrange(...newline)
             guard !line.isEmpty else { continue }
             do {
-                let changed = try decoder.consume(line)
+                guard let message = try JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+                if message["type"] as? String == "commandResult" {
+                    if let commandID = (message["id"] as? NSNumber)?.uintValue,
+                       pendingCommandIDs.remove(commandID) != nil {
+                        isCommandPending = !pendingCommandIDs.isEmpty
+                    }
+                    continue
+                }
+                let changed = try decoder.consume(message)
                 availability = .available
                 if changed { snapshot = decoder.snapshot }
             } catch {
@@ -254,6 +294,10 @@ final class NowPlayingStore: ObservableObject {
     }
 
     private func cleanUpStream() {
+        try? streamInput?.fileHandleForWriting.close()
+        streamInput = nil
+        pendingCommandIDs.removeAll()
+        isCommandPending = false
         streamOutput?.fileHandleForReading.readabilityHandler = nil
         streamErrors?.fileHandleForReading.readabilityHandler = nil
         streamOutput = nil
@@ -266,6 +310,6 @@ final class NowPlayingStore: ObservableObject {
         streamOutput?.fileHandleForReading.readabilityHandler = nil
         streamErrors?.fileHandleForReading.readabilityHandler = nil
         if streamProcess?.isRunning == true { streamProcess?.terminate() }
-        if commandProcess?.isRunning == true { commandProcess?.terminate() }
+        try? streamInput?.fileHandleForWriting.close()
     }
 }
