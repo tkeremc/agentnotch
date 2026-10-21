@@ -5,6 +5,7 @@ struct WidgetDrawerView: View {
     @ObservedObject var state: IslandState
     @ObservedObject var settings: NotchSettings
     @ObservedObject var media: NowPlayingStore
+    @ObservedObject var codex: CodexStore
     private static let dragType = UTType(exportedAs: "com.local.NotchLab.widget")
 
     var body: some View {
@@ -87,6 +88,9 @@ struct WidgetDrawerView: View {
     @ViewBuilder
     private func widgetContent(_ widget: WidgetKind) -> some View {
         switch widget {
+        case .codex:
+            CodexWidgetView(settings: settings, store: codex,
+                            onConnect: { state.openCodexSettings?() })
         case .clock:
             // The entire drawer is removed when closed, suspending its timeline.
             TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -196,8 +200,12 @@ struct WidgetDrawerView: View {
             settings.addWidget(widget)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: widget.symbol)
-                    .font(.system(size: 19, weight: .light))
+                if widget == .codex {
+                    Image("GPTMark").resizable().scaledToFit().frame(width: 22, height: 22)
+                } else {
+                    Image(systemName: widget.symbol)
+                        .font(.system(size: 19, weight: .light))
+                }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(settings.localization.text(widget.titleKey)).font(.system(size: 12, weight: .medium))
                     Text(settings.localization.text(widget.summaryKey))

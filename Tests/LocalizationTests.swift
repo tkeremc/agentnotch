@@ -199,7 +199,10 @@ enum LocalizationTests {
             throw Failure(description: "Missing String Catalog fixture")
         }
         try expect(catalog["sourceLanguage"] as? String == "en", "English must remain the source language")
-        try expect(Set(strings.keys) == Set(L10nKey.allCases.map(\.rawValue)),
+        // Xcode may extract literal branding such as "agentnotch" alongside
+        // semantic keys. Keep those existing catalog entries intact.
+        let semanticKeys = Set(strings.keys.filter { $0.contains(".") })
+        try expect(semanticKeys == Set(L10nKey.allCases.map(\.rawValue)),
                    "Catalog and typed keys must stay complete and in sync")
         for language in AppLanguage.allCases {
             let localizer = try localization(language)

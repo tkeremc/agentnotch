@@ -32,6 +32,11 @@ final class IslandState: ObservableObject {
     @Published var collapsedWidth: CGFloat = 200
     @Published var hasMedia = false
     @Published var mediaProgress: CGFloat = 0
+    @Published var codexIndicator: CodexIndicator = .none
+    @Published var codexCompactAgents: [CodexCompactAgent] = []
+    @Published var codexSlotsProgress: CGFloat = 0
+    @Published var hasCodexAlert = false
+    @Published var codexAlertProgress: CGFloat = 0
     @Published var layout = WidgetDrawerLayout(widgets: [WidgetKind.clock.descriptor], maximumWidth: 880,
                                               minimumWidth: WidgetDrawerLayout.minimumWidth(collapsedWidth: 200),
                                               maximumHeight: 560, editing: false)
@@ -48,12 +53,14 @@ final class IslandState: ObservableObject {
     var filesPageOpacity: CGFloat { max(0, 2 * pageProgress - 1) }
     var holdsOpen: Bool { isEditingWidgets || isIncomingDrag || isOutgoingDrag }
     var openSettings: (() -> Void)?
+    var openCodexSettings: (() -> Void)?
     var editingChanged: (() -> Void)?
     var pageChanged: (() -> Void)?
     var filesDropped: (([URL]) -> Bool)?
     var dropTargetChanged: ((Bool) -> Void)?
     var outgoingChanged: ((Bool) -> Void)?
     var openMedia: (() -> Void)?
+    var openCodex: (() -> Void)?
 
     func beginIncomingDrag() {
         guard !isOutgoingDrag, !isIncomingDrag else { return }
@@ -90,19 +97,23 @@ final class IslandState: ObservableObject {
     var showsDragHint: Bool { hasFileDrag && !expanded && !isOutgoingDrag }
     static let dragHintHeight: CGFloat = 26
     static let mediaWingWidth: CGFloat = 44
+    static let codexWingWidth: CGFloat = 28
     var mediaWingWidth: CGFloat { Self.mediaWingWidth * mediaProgress * (1 - progress) }
+    var codexWingWidth: CGFloat {
+        Self.codexWingWidth * max(codexAlertProgress, codexSlotsProgress) * (1 - progress)
+    }
     // Keep the hardware notch's right edge fixed while artwork extends to the left.
-    var surfaceOffsetX: CGFloat { -mediaWingWidth / 2 }
+    var surfaceOffsetX: CGFloat { (codexWingWidth - mediaWingWidth) / 2 }
     var surfaceWidth: CGFloat {
         let restingWidth = collapsedWidth + 24 * dragHintProgress
-        return restingWidth + (expandedWidth - restingWidth) * progress + mediaWingWidth
+        return restingWidth + (expandedWidth - restingWidth) * progress + mediaWingWidth + codexWingWidth
     }
     var surfaceHeight: CGFloat {
         topBand + contentHeight * progress
             + (Self.dragHintHeight * dragHintProgress - collapsedBottomInset) * (1 - progress)
     }
     var canvasSize: NSSize {
-        NSSize(width: max(layout.width, collapsedWidth + 24 + 2 * Self.mediaWingWidth) + 24,
+        NSSize(width: max(layout.width, collapsedWidth + 24 + 2 * Self.mediaWingWidth + 2 * Self.codexWingWidth * max(CGFloat(max(1, codexCompactAgents.count)), ceil(codexSlotsProgress))) + 24,
                height: topBand + max(layout.contentHeight, shelfHeight, Self.dragHintHeight) + 12)
     }
 }

@@ -4,10 +4,20 @@
 <dict>
     <key>com.apple.security.app-sandbox</key>
     <true/>
-    <key>com.apple.security.files.user-selected.read-only</key>
+    <key>com.apple.security.files.user-selected.read-write</key>
     <true/>
     <key>com.apple.security.files.bookmarks.app-scope</key>
     <true/>
+    <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+    <array>
+        <string>/.codex/sessions/</string>
+        <string>/.codex/session_index.jsonl</string>
+    </array>
+    <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+    <array>
+        <string>/.codex/hooks.json</string>
+        <string>/.codex/agentnotch/</string>
+    </array>
     <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
     <array>
         <string>com.apple.mediaremoted.xpc</string>

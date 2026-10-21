@@ -5,6 +5,7 @@ struct IslandView: View {
     @ObservedObject var settings: NotchSettings
     @ObservedObject var shelf: FileShelfStore
     @ObservedObject var media: NowPlayingStore
+    @ObservedObject var codex: CodexStore
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -31,6 +32,7 @@ struct IslandView: View {
                     .accessibilityHidden(!state.expanded || state.contentProgress < 0.9)
 
                 compactMedia
+                compactCodexAlert
 
                 HStack(spacing: 6) {
                     Image(systemName: "tray.and.arrow.down")
@@ -48,10 +50,10 @@ struct IslandView: View {
             .frame(width: state.surfaceWidth, height: state.surfaceHeight, alignment: .top)
             .background(settings.backgroundColor)
             .clipShape(UnevenRoundedRectangle(
-                topLeadingRadius: 8,
+                topLeadingRadius: 0,
                 bottomLeadingRadius: 16 + 12 * state.progress,
                 bottomTrailingRadius: 16 + 12 * state.progress,
-                topTrailingRadius: 8
+                topTrailingRadius: 0
             ))
             .offset(x: state.surfaceOffsetX)
         }
@@ -65,7 +67,7 @@ struct IslandView: View {
         if state.expanded || state.contentProgress > 0 {
             ZStack(alignment: .top) {
                 if state.page == .home || state.pageProgress < 1 {
-                    WidgetDrawerView(state: state, settings: settings, media: media)
+                    WidgetDrawerView(state: state, settings: settings, media: media, codex: codex)
                         .frame(width: state.layout.width, height: state.layout.contentHeight)
                         .opacity(Double(state.homePageOpacity))
                         .allowsHitTesting(state.page == .home && state.homePageOpacity > 0.9)
@@ -138,6 +140,32 @@ struct IslandView: View {
         .foregroundStyle(settings.foregroundColor)
     }
 
+    private var compactCodexAlert: some View {
+        HStack(spacing: 0) {
+            ForEach(state.codexCompactAgents) { agent in
+                Button { state.openCodex?() } label: {
+                    CompactAgentMark(iconName: agent.iconName, foreground: settings.foregroundColor,
+                        background: settings.backgroundColor, statusSymbol: agent.indicator.symbol,
+                        statusColor: agent.indicator == .working ? .green
+                            : agent.indicator == .failed ? .red : .orange,
+                        animates: agent.indicator == .working && settings.animationsEnabled)
+                        .frame(width: IslandState.codexWingWidth,
+                               height: state.topBand - state.collapsedBottomInset)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("\(agent.name) · \(settings.localization.text(agent.indicator.title))")
+                .accessibilityLabel("\(agent.name) · \(settings.localization.text(agent.indicator.title))")
+            }
+        }
+        .frame(width: state.codexWingWidth, alignment: .leading)
+        .clipped()
+        .frame(width: state.surfaceWidth, alignment: .trailing)
+        .opacity(Double(state.codexAlertProgress * max(0, 1 - state.progress * 2)))
+        .allowsHitTesting(state.hasCodexAlert && !state.expanded)
+        .accessibilityHidden(!state.hasCodexAlert || state.expanded)
+    }
+
     private func pageButton(_ page: IslandPage, symbol: String, title: String) -> some View {
         let selection = page == .home ? 1 - state.pageProgress : state.pageProgress
         return Button { state.selectPage(page) } label: {
@@ -154,5 +182,38 @@ struct IslandView: View {
         .accessibilityLabel(title)
         .accessibilityAddTraits(state.page == page ? [.isSelected] : [])
         .disabled(state.isIncomingDrag || state.isOutgoingDrag)
+    }
+}
+
+
+/// Agent branding stays fixed while its small status badge changes independently.
+/// Other providers can supply their own asset without duplicating the layout.
+private struct CompactAgentMark: View {
+    let iconName: String
+    let foreground: Color
+    let background: Color
+    let statusSymbol: String
+    let statusColor: Color
+    let animates: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Image(iconName)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(foreground)
+            .frame(width: 18, height: 18)
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: statusSymbol)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(statusColor)
+                    .symbolEffect(.pulse, options: .repeating,
+                        isActive: animates && !reduceMotion)
+                    .frame(width: 11, height: 11)
+                    .background(background, in: Circle())
+                    .offset(x: 3, y: 3)
+            }
+            .frame(width: 24, height: 24)
+            .accessibilityHidden(true)
     }
 }

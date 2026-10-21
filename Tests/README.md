@@ -1,5 +1,45 @@
 # App tests
 
+Codex coverage includes the actual packaged native hook helper, isolated
+install/remove fixtures, incremental quota reading, conservative permission
+correlation, and a helper → disk spool → background store integration test.
+No real Codex configuration, hook trust, or login state is changed. The runner
+supplies `AGENTNOTCH_TEST_CODEX_HELPER` to the Swift integration fixture.
+
+Visual QA uses the real SwiftUI card with synthetic disconnected, working,
+permission-request and stale/unknown data in both languages:
+
+```sh
+/bin/sh Research/CodexReadOnly/render.sh /tmp/agentnotch-codex-visual
+```
+
+This renders a temporary AppKit application; it does not install hooks. Inspect
+the PNGs under the output directory's `images/` folder. Real Codex hook trust
+and the connection confirmation remain interactive checks, separate from the
+synthetic integration test.
+
+The widget-to-settings handoff has a separate GUI regression check:
+
+```sh
+python3 Research/CodexReadOnly/settings-flow-check.py
+```
+
+It runs the actual AppDelegate in its own bundle and preferences domain, verifies
+that settings collapses the editing drawer and releases mouse input, checks that
+expansion stays disabled until settings closes, and automatically cancels the
+real consent dialog. No hook helper is bundled and no installation is accepted.
+Screenshots are written to the printed temporary directory. Codex location
+metadata may be read to display the consent dialog.
+
+The connection tests discover an isolated home and exercise cancel, consent,
+duplicate clicks and missing installations without showing a folder picker.
+A separate signed App Sandbox probe uses exact hooks-file and own-directory
+grants against a temporary fixture, including denied credential access:
+
+```sh
+python3 Research/CodexReadOnly/sandbox-hooks-probe.py
+```
+
 Run on macOS with Xcode's command-line tools:
 
 ```sh
@@ -94,3 +134,23 @@ sol kapağı ve ana sayfadaki kartı kontrol et. Oynat/duraklat ve ileri/geri
 kaynağın desteklediği ölçüde çalışmalıdır. Kaynak kapanınca kart boş duruma
 dönmeli; widget kaldırıldığında sol genişleme ve helper kapanmalıdır. Kapak
 vermeyen kaynaklarda müzik simgesi beklenir.
+
+## Codex düzeltmesi için kapsamlı kontroller
+
+```sh
+AGENTNOTCH_TEST_SCOPE=codex bash Tests/run.sh
+```
+
+Bu kapsam gerçek Codex veri/store/UI kaynaklarını, kurulum geçişini ve
+EN/TR yerelleştirmelerini derler. Ayarlar macro süreci ve ilgisiz pasteboard
+kontrolleri bu bileşen çalışmasının kapsamı dışındadır; tam suite ayrıca
+`bash Tests/run.sh` ile çalışır. Shell entegrasyon testi hooks.json'daki gerçek
+komutu `/bin/zsh -lc` üzerinden geçici event dizinine çalıştırır. Gerçek Codex
+config veya trust dosyası değiştirilmez.
+
+v2 kurulumunda sandbox içinden executable üretilmez: paket helper'ına doğrudan
+başvurulur. `sandbox-hooks-probe.py` gerçek native helper'ı derleyip geçici
+sandbox uygulamasının kurduğu komutu dış shell'den çalıştırarak olay teslimini
+kontrol eder. Ana/alt ajan ilişkisi, fork geçmişi, yeniden görevlendirme, geciken
+eski tur olayları, terminal hata, tool hatası, uzun iş heartbeat'i ve hook öncesi
+salt okunur çalışma görünürlüğü regression kapsamındadır.

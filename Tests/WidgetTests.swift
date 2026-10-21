@@ -29,6 +29,8 @@ struct WidgetTests {
             ("file drag hint stays compact until approach", fileDragHint),
             ("cancelled file drag restores page only after collapse", deferredDragRestoration)
         ] + FileShelfTests.cases + FileShelfDragTests.cases + LocalizationTests.cases + NowPlayingTests.cases
+          + CodexActivityTests.cases + CodexUsageTests.cases + CodexHookInstallerTests.cases
+          + CodexStoreTests.cases
         var failures = 0
         for (name, test) in tests {
             do {

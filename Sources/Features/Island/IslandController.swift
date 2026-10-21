@@ -8,6 +8,7 @@ final class IslandController: NSObject {
     private let state = IslandState()
     private let shelf = FileShelfStore()
     private let media = NowPlayingStore()
+    private let codex: CodexStore
     private let compactMedia = CompactMediaVisibility()
     private var mediaMonitoringEnabled = false
     private let settings: NotchSettings
@@ -20,18 +21,22 @@ final class IslandController: NSObject {
     private var globalMouseMonitor: Any?
     private var localMouseMonitor: Any?
     private var pointerInside = false
+    private var settingsPresented = false
     private var transition = IslandTransition()
     private var pageMotion = IslandMotion()
     private var dragHintMotion = IslandMotion()
     private var mediaMotion = IslandMotion()
+    private var codexMotion = IslandMotion()
     private var displayLink: CADisplayLink?
     private var lastFrameTime: CFTimeInterval = 0
     private var dragTimer: Timer?
     private var dragPasteboardBaseline = 0
     private var releasePending: Task<Void, Never>?
 
-    init(settings: NotchSettings, openSettings: @escaping () -> Void) {
+    init(settings: NotchSettings, codex: CodexStore, openCodexSettings: (() -> Void)? = nil,
+         openSettings: @escaping () -> Void) {
         self.settings = settings
+        self.codex = codex
         panel = IslandPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -40,6 +45,12 @@ final class IslandController: NSObject {
         )
         super.init()
         state.openSettings = openSettings
+        state.openCodexSettings = openCodexSettings ?? openSettings
+        state.openCodex = { [weak self] in
+            guard let self else { return }
+            self.state.selectPage(.home)
+            self.setExpanded(true)
+        }
         state.openMedia = { [weak self] in
             guard let self else { return }
             self.state.selectPage(.home)
@@ -91,7 +102,7 @@ final class IslandController: NSObject {
         panel.animationBehavior = .none
 
         positionOnScreen()
-        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf, media: media))
+        let view = HoverHostingView(rootView: IslandView(state: state, settings: settings, shelf: shelf, media: media, codex: codex))
         // The controller owns the panel's size. SwiftUI's automatic window
         // min/max constraints otherwise feed animated layout back into AppKit.
         view.sizingOptions = []
@@ -121,6 +132,7 @@ final class IslandController: NSObject {
         settings.$widgets.dropFirst().sink { [weak self] widgets in
             self?.updateDrawerLayout(widgets: widgets)
             self?.updateMediaMonitoring(widgets: widgets)
+            self?.updateCodexMonitoring(widgets: widgets)
         }.store(in: &subscriptions)
         media.$snapshot.sink { [weak self] snapshot in
             guard let self else { return }
@@ -128,6 +140,16 @@ final class IslandController: NSObject {
         }.store(in: &subscriptions)
         compactMedia.$isVisible.removeDuplicates().sink { [weak self] visible in
             self?.setMediaAvailable(visible)
+        }.store(in: &subscriptions)
+        codex.$compactAgents.removeDuplicates().sink { [weak self] agents in
+            guard let self else { return }
+            let previousCount = self.state.codexCompactAgents.count
+            self.state.codexCompactAgents = agents
+            self.state.codexIndicator = agents.first?.indicator ?? .none
+            // Grow the fixed transparent canvas before the surface expands.
+            // Keep its larger size through removal so closing icons cannot clip.
+            if agents.count > previousCount { self.updateDrawerLayout(widgets: self.settings.widgets) }
+            self.setCodexAlertAvailable(!agents.isEmpty)
         }.store(in: &subscriptions)
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -156,6 +178,7 @@ final class IslandController: NSObject {
         startMouseMonitoring()
         panel.orderFrontRegardless()
         updateMediaMonitoring(widgets: settings.widgets)
+        updateCodexMonitoring(widgets: settings.widgets)
         pointerMoved()
     }
 
@@ -164,6 +187,11 @@ final class IslandController: NSObject {
         mediaMonitoringEnabled = false
         compactMedia.update(isPlaying: nil)
         media.stop()
+        codex.stop()
+        state.hasCodexAlert = false
+        state.codexAlertProgress = 0
+        state.codexSlotsProgress = 0
+        codexMotion = IslandMotion()
         state.hasMedia = false
         state.mediaProgress = 0
         mediaMotion = IslandMotion()
@@ -180,6 +208,26 @@ final class IslandController: NSObject {
         transition = IslandTransition()
         pointerInside = false
         stopMouseMonitoring()
+    }
+
+    /// The status-level panel must never cover settings or its consent UI.
+    /// Keep it collapsed until settings closes or is minimized.
+    func setSettingsPresented(_ presented: Bool) {
+        settingsPresented = presented
+        pendingHover?.cancel()
+        if presented {
+            dragTimer?.invalidate()
+            dragTimer = nil
+            releasePending?.cancel()
+            state.isEditingWidgets = false
+            state.endIncomingDrag()
+            setFileDragAvailable(false)
+            state.expanded = false
+            finishTransition()
+            pointerInside = false
+        } else {
+            pointerMoved()
+        }
     }
 
     private func startMouseMonitoring() {
@@ -209,7 +257,7 @@ final class IslandController: NSObject {
             ?? NSScreen.main ?? NSScreen.screens.first
         guard let screen else { return }
         let notchHeight = screen.safeAreaInsets.top
-        state.topBand = notchHeight > 0 ? notchHeight : 32
+        state.topBand = (notchHeight > 0 ? notchHeight : 32) + 2
         state.collapsedBottomInset = 3 / screen.backingScaleFactor
         topInset = notchHeight > 0 ? 0 : 8
         if notchHeight > 0,
@@ -280,17 +328,18 @@ final class IslandController: NSObject {
 
     private func updateMousePassthrough() {
         // Transparent canvas space must never block the application below it.
-        panel.ignoresMouseEvents = !surfaceFrame.contains(NSEvent.mouseLocation)
+        panel.ignoresMouseEvents = settingsPresented || !surfaceFrame.contains(NSEvent.mouseLocation)
     }
 
     private func pointerMoved() {
-        guard panel.isVisible else { return }
+        guard panel.isVisible, !settingsPresented else { return }
         let inside = hoverFrame.contains(NSEvent.mouseLocation)
         updateMousePassthrough()
         if inside != pointerInside { hover(inside) }
     }
 
     private func mouseEvent(_ event: NSEvent) {
+        guard !settingsPresented else { return }
         if event.type == .leftMouseDown {
             dragPasteboardBaseline = NSPasteboard(name: .drag).changeCount
             releasePending?.cancel()
@@ -314,7 +363,7 @@ final class IslandController: NSObject {
     }
 
     private func inspectDrag() {
-        guard panel.isVisible else { return }
+        guard panel.isVisible, !settingsPresented else { return }
         guard NSEvent.pressedMouseButtons & 1 != 0 else {
             setFileDragAvailable(false)
             dragTimer?.invalidate()
@@ -362,7 +411,7 @@ final class IslandController: NSObject {
     }
 
     private func hover(_ inside: Bool) {
-        guard panel.isVisible else { return }
+        guard panel.isVisible, !settingsPresented else { return }
         pointerInside = inside
         pendingHover?.cancel()
         guard !state.holdsOpen else { return }
@@ -382,6 +431,7 @@ final class IslandController: NSObject {
     }
 
     private func setExpanded(_ expanded: Bool) {
+        guard !expanded || !settingsPresented else { return }
         guard state.expanded != expanded else { return }
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         state.expanded = expanded
@@ -395,6 +445,30 @@ final class IslandController: NSObject {
     private var pageTarget: Double { state.page == .files ? 1 : 0 }
     private var dragHintTarget: Double { state.showsDragHint ? 1 : 0 }
     private var mediaTarget: Double { state.hasMedia ? 1 : 0 }
+    private var codexTarget: Double {
+        state.hasCodexAlert ? Double(max(1, state.codexCompactAgents.count)) : 0
+    }
+
+    private func updateCodexMonitoring(widgets: [WidgetKind]) {
+        if panel.isVisible && widgets.contains(.codex) { codex.start() }
+        else { codex.stop(); setCodexAlertAvailable(false) }
+    }
+
+    private func setCodexAlertAvailable(_ available: Bool) {
+        let available = available && panel.isVisible && settings.widgets.contains(.codex)
+        let changed = state.hasCodexAlert != available
+        state.hasCodexAlert = available
+        guard changed || codexMotion.progress != codexTarget || codexMotion.velocity != 0 else { return }
+        guard panel.isVisible, settings.animationsEnabled,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            codexMotion = IslandMotion(progress: codexTarget)
+            state.codexAlertProgress = CGFloat(min(1, codexTarget))
+            state.codexSlotsProgress = CGFloat(codexTarget)
+            updateMousePassthrough()
+            return
+        }
+        startAnimation()
+    }
 
     private func updateMediaMonitoring(widgets: [WidgetKind]) {
         mediaMonitoringEnabled = panel.isVisible && widgets.contains(.media)
@@ -459,10 +533,12 @@ final class IslandController: NSObject {
         pageMotion.advance(toward: pageTarget, elapsed: elapsed * settings.animationSpeed, frequency: 26)
         dragHintMotion.advance(toward: dragHintTarget, elapsed: elapsed * settings.animationSpeed, frequency: 40)
         mediaMotion.advance(toward: mediaTarget, elapsed: elapsed * settings.animationSpeed, frequency: 34)
+        codexMotion.advance(toward: codexTarget, elapsed: elapsed * settings.animationSpeed, frequency: 34)
         if transition.isSettled(expanded: state.expanded),
            pageMotion.progress == pageTarget, pageMotion.velocity == 0,
            dragHintMotion.progress == dragHintTarget, dragHintMotion.velocity == 0,
-           mediaMotion.progress == mediaTarget, mediaMotion.velocity == 0 {
+           mediaMotion.progress == mediaTarget, mediaMotion.velocity == 0,
+           codexMotion.progress == codexTarget, codexMotion.velocity == 0 {
             stopAnimation()
         }
         var transaction = Transaction()
@@ -473,6 +549,8 @@ final class IslandController: NSObject {
             state.pageProgress = CGFloat(max(0, min(1, pageMotion.progress)))
             state.dragHintProgress = CGFloat(max(0, min(1, dragHintMotion.progress)))
             state.mediaProgress = CGFloat(max(0, min(1, mediaMotion.progress)))
+            state.codexAlertProgress = CGFloat(max(0, min(1, codexMotion.progress)))
+            state.codexSlotsProgress = CGFloat(max(0, codexMotion.progress))
             state.restorePageAfterCollapse()
         }
         pointerMoved()
@@ -489,11 +567,14 @@ final class IslandController: NSObject {
         pageMotion = IslandMotion(progress: pageTarget)
         dragHintMotion = IslandMotion(progress: dragHintTarget)
         mediaMotion = IslandMotion(progress: mediaTarget)
+        codexMotion = IslandMotion(progress: codexTarget)
         state.progress = CGFloat(transition.surface.progress)
         state.contentProgress = CGFloat(transition.content.progress)
         state.pageProgress = CGFloat(pageTarget)
         state.dragHintProgress = CGFloat(dragHintTarget)
         state.mediaProgress = CGFloat(mediaTarget)
+        state.codexAlertProgress = CGFloat(min(1, codexTarget))
+        state.codexSlotsProgress = CGFloat(codexTarget)
         state.restorePageAfterCollapse()
         updateMousePassthrough()
     }

@@ -47,6 +47,77 @@ Projeye bu kaynaktan kod veya hazır binary eklenmemiştir. Apple bu API’yi
 ileride değiştirebilir; bu entegrasyon Mac App Store dağıtımına uygun kabul
 edilmemelidir. Sistem Şu An Çalınan bilgisine katılmayan uygulamalar algılanmaz.
 
+## Codex widget’ı
+
+Widget düzenleme kataloğundan **Codex** eklenebilir. Kart, Codex’in bu Mac’te
+en son kaydettiği kota pencerelerini, kalan kullanım yüzdesini, yenilenme
+zamanını ve bilginin yaşını gösterir. Yeniden hesap girişi veya API anahtarı
+gerekmez. Kota henüz kaydedilmemişse ya da birden çok hesaba ait kayıt varsa
+bilinmeyen değerler yüzde sıfır gibi gösterilmez. GPT ikonu taşıyan 180 pt
+yüksekliğindeki kartta kota pencereleri solda, ajanlar ve izin uyarıları sağdadır.
+
+Ana ajan ve alt ajan etkinliği mevcut oturum kayıtlarından salt okunur olarak
+izlenir; sohbet başlığı, klasör ve üst/alt ilişkiler gösterilir. Başlıklar yalnız
+salt okunur `session_index.jsonl` metadata dosyasından alınır; başlık yoksa
+ajan/proje adı gösterilir. Liste kaydırılabilir. Başlangıç,
+bitiş, kesilme, görev hatası ve araç hatası birbirinden ayrılır. Kapalı çentikte
+çalışma yeşil, izin isteği turuncu, hata kırmızı gösterilir. Kaynak yazmayı
+bırakırsa durum bilinmiyor olur; tamamlanmış sayılmaz.
+
+İzin uyarıları için karttaki **Bağlan** düğmesini veya ayarlardaki
+**Codex bağlantısı** bölümünü kullan. Karttaki **Bağlan**, ayarlar penceresini
+açar. Ayarlar açıkken çentik menüsü kapanır ve fare girişini engellemez;
+pencere kapatılınca veya küçültülünce normal davranış geri gelir.
+Uygulama standart `.codex` konumunu
+kendisi bulur; klasör seçmen gerekmez. **Etkinleştir** onayı verilince mevcut
+hook tanımlarını koruyarak kendi kullanıcı düzeyi entegrasyonunu ekler.
+Hook, uygulama paketindeki imzalı yardımcı programı doğrudan çalıştırır;
+`.codex` içine çalıştırılabilir dosya kopyalanmaz. Önceki kurulum için
+**Onar** görünür. Onarım yalnız sahipliği doğrulanmış eski tanımları ve
+eski yardımcı kopyasını değiştirir; kullanıcı tarafından değiştirilmiş dosyalar
+korunur. Uygulamanın konumu değişirse bağlantı yeniden onarılmalıdır.
+Vazgeçersen hiçbir kurulum dosyası yazılmaz. Ardından Codex’te `/hooks`
+üzerinden yeni tanımları inceleyip güvenilir olarak onaylamak gerekir;
+AgentNotch bu güven kararını otomatik yazmaz. Sonraki desteklenen yerel
+oturumlarda proje/ajan etkinliği ve izin isteği olayları otomatik iletilir.
+
+İzin isteği geldiğinde kapalı çentiğin sağında turuncu bir gösterge belirir;
+tıklamak widget çekmecesini açar. Açık kartta proje ve varsa kısa izin gerekçesi
+görünür. Bu bildirim Codex’in onay ekranının yerine geçmez. İstek kimliği
+eşleşen araç sonucu, görev bitişi veya kesilme uyarıyı temizler. Codex istek
+kimliği sağlamadığında başka bir paralel araç sonucuna bakarak kapandığı
+varsayılmaz; belirsiz eski istek beş dakika sonra bilinmiyor olur.
+
+Ayarlardaki **Bağlantıyı kaldır** yalnız AgentNotch tanımlarını ve varsa
+sahipliği doğrulanmış eski yardımcı kopyasını kaldırır; paket içindeki
+program ve diğer hook’lar korunur. Yeniden ekleme aynı tanımları
+çoğaltmaz. Değişen hook tanımları Codex’te tekrar güven onayı gerektirebilir.
+İlk açılış sihirbazı henüz eklenmedi; aynı kurulum/kaldırma katmanı hazırdır.
+
+Ortak yardımcı Xcode tarafından `Native/CodexHookBridge.swift` kaynağından
+derlenip paketlenir. Prompt, komut, tool çıktısı veya kimlik bilgisi kaydetmez;
+yalnız sınırlı olay metadata’sını özel yerel kuyruğa yazar. Kota ve görev yaşam
+döngüsü için `sessions` kayıtları, sohbet adı için `session_index.jsonl` okunur. Alt ajan hook kimliği gerektiğinde
+hook'un sağladığı transcript'in ilk metadata satırından sınırlı olarak çıkarılır;
+konuşma metni saklanmaz. İstek kimliği olmayan onaylar, yalnız tek bir eşleşen
+PreToolUse çağrısı varsa opak girdi özetiyle araç kimliğine bağlanır; aynı girdili
+paralel çağrılar tahmin edilmez. App Sandbox açık kalır: standart `sessions` için
+salt okunur; yalnız `hooks.json` ve entegrasyonun kendi `agentnotch/` dizini için
+yazma istisnası vardır. Atomik hook güncellemesinin geçici dosyası kendi
+dizininde hazırlanır; Codex dizininin tamamına erişim açılmaz. Dosya deposu
+bookmark’ları kendi read-only bayraklarını korur.
+
+Uygulama ortamına aktarılmış mutlak `CODEX_HOME` ve önceden kaydedilmiş
+klasör izni de tanınır. Standart konum dışındaki dizinlere erişim sandbox
+izinleriyle sınırlıdır; erişilemeyen özel konum yerine başka bir Codex
+kurulumuna sessizce bağlanılmaz. Tüm kullanıcı dizini veya kimlik dosyaları
+taranmaz.
+
+Bulut görevlerinin tamamının gözlemlendiği veya sessiz bir ajanın hâlâ çalıştığı
+varsayılmaz. Kota reset zamanı geçmişse yeni gözlem gelene kadar güncelleme
+beklenir. Yerel ad-hoc build doğrulaması, Mac App Store istisna onayı anlamına
+gelmez. Mimari ve test planı: `Research/CodexReadOnly/IMPLEMENTATION_PLAN.md`.
+
 ## Dosya deposu
 
 Finder’da bir dosya ya da klasörü sürüklemeye başladığında çentiğin altında küçük
