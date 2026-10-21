@@ -93,7 +93,7 @@ enum CodexLocations {
     }
 }
 
-private struct CodexMonitorSnapshot {
+struct CodexMonitorSnapshot {
     let usage: CodexUsageReadResult
     let agents: [CodexAgentSnapshot]
     let approvals: [CodexApprovalSnapshot]
@@ -103,10 +103,11 @@ private struct CodexMonitorSnapshot {
 
 /// Confined to the store's serial utility queue. Only the installer writes to
 /// Codex, and it is never called by this monitor or by an automatic refresh.
-private final class CodexMonitor {
+final class CodexMonitor {
     let home: URL
     private let usage: CodexUsageReader
     private let helperSource: URL?
+    private let eventData: (URL) throws -> Data?
     private var activity = CodexActivityState()
     private var seenFiles: Set<String> = []
     private var lastHookAt: Date?
@@ -114,9 +115,11 @@ private final class CodexMonitor {
     private var usageResult = CodexUsageReadResult(snapshot: nil, availability: .noData,
                                                   scannedFiles: 0, readErrors: [])
 
-    init(home: URL, helperSource: URL? = nil) {
+    init(home: URL, helperSource: URL? = nil,
+         eventData: @escaping (URL) throws -> Data? = CodexMonitor.readEventData) {
         self.home = home
         self.helperSource = helperSource
+        self.eventData = eventData
         usage = CodexUsageReader(sessionsDirectory: home.appendingPathComponent("sessions"))
     }
 
@@ -144,31 +147,34 @@ private final class CodexMonitor {
                 seenFiles.formIntersection(Set(eligible.map(\.lastPathComponent)))
                 var incoming: [CodexHookEvent] = []
                 for url in eligible where !seenFiles.contains(url.lastPathComponent) {
-                    let attributes = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-                    guard attributes.isRegularFile == true, attributes.isSymbolicLink != true,
-                          let size = attributes.fileSize, size > 0, size <= 8192 else {
-                        seenFiles.insert(url.lastPathComponent)
-                        continue
-                    }
-                    let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW)
-                    guard descriptor >= 0 else { throw CocoaError(.fileReadNoPermission) }
-                    let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-                    let data = try handle.read(upToCount: 8193) ?? Data()
-                    try? handle.close()
-                    guard data.count <= 8192 else { seenFiles.insert(url.lastPathComponent); continue }
-                    if let event = try? JSONDecoder().decode(CodexHookEvent.self, from: data),
-                       event.schemaVersion == 1, UUID(uuidString: event.id) != nil {
-                        // A clock-skewed event must not move a reducer watermark
-                        // ahead of real activity. Retry it when time catches up.
-                        if event.timestamp > now { continue }
-                        guard event.timestamp >= now.addingTimeInterval(-7 * 86400) else {
+                    do {
+                        guard let data = try eventData(url) else {
                             seenFiles.insert(url.lastPathComponent)
                             continue
                         }
-                        incoming.append(event)
-                        lastHookAt = max(lastHookAt ?? .distantPast, event.timestamp)
+                        if let event = try? JSONDecoder().decode(CodexHookEvent.self, from: data),
+                           event.schemaVersion == 1, UUID(uuidString: event.id) != nil {
+                            // A clock-skewed event must not move a reducer watermark
+                            // ahead of real activity. Retry it when time catches up.
+                            if event.timestamp > now { continue }
+                            guard event.timestamp >= now.addingTimeInterval(-7 * 86400) else {
+                                seenFiles.insert(url.lastPathComponent)
+                                continue
+                            }
+                            incoming.append(event)
+                            lastHookAt = max(lastHookAt ?? .distantPast, event.timestamp)
+                        }
+                        seenFiles.insert(url.lastPathComponent)
+                    } catch {
+                        // The helper prunes old files while we scan. A listed
+                        // event disappearing is normal, not a lost connection.
+                        let error = error as NSError
+                        let missing = (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
+                            || (error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadNoSuchFile.rawValue)
+                        if !missing { eventAccessFailed = true }
+                        // Retry actual read failures next poll. Other events
+                        // must still reach the reducer during this poll.
                     }
-                    seenFiles.insert(url.lastPathComponent)
                 }
                 for event in incoming.sorted(by: {
                     $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
@@ -188,6 +194,25 @@ private final class CodexMonitor {
             approvals: installed && !eventAccessFailed ? activity.pendingApprovals(at: now) : [])
         return CodexMonitorSnapshot(usage: usageResult, agents: projection.agents,
             approvals: projection.approvals, lastHookAt: lastHookAt, connection: connection)
+    }
+
+    static func readEventData(_ url: URL) throws -> Data? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        guard info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid() else { return nil }
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        guard fstat(descriptor, &info) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        guard info.st_mode & S_IFMT == S_IFREG, info.st_uid == getuid(),
+              info.st_size > 0, info.st_size <= 8192 else { return nil }
+        let data = try handle.read(upToCount: 8193) ?? Data()
+        return data.count <= 8192 ? data : nil
     }
 }
 

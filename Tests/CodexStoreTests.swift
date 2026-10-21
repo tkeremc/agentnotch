@@ -9,7 +9,10 @@ enum CodexStoreTests {
         ("Codex automatic connection writes only after consent", consent),
         ("Codex packaged helper feeds the store without touching real Codex", integration),
         ("Codex permission wing preserves notch geometry beside media", geometry),
-        ("Codex current sessions remain visible before hook repair", readOnlyActivity)
+        ("Codex current sessions remain visible before hook repair", readOnlyActivity),
+        ("Codex spool pruning does not report a connection failure", spoolPruning),
+        ("Codex read failures preserve other events and retry unread files", spoolReadFailure),
+        ("Codex spool reads reject symlinks and oversized files", spoolFileSafety)
     ]
     private struct Failure: Error { let message: String }
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -206,6 +209,96 @@ enum CodexStoreTests {
                    "monitoring never installs hooks")
         let after = try Data(contentsOf: file)
         try expect(after == bytes, "live sessions remain read-only")
+    }
+
+    private static func monitorFixture(_ body: (URL, URL, Date) throws -> Void) throws {
+        guard let binary = ProcessInfo.processInfo.environment["AGENTNOTCH_TEST_CODEX_HELPER"] else {
+            throw Failure(message: "Tests/run.sh must supply the packaged helper")
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("CodexSpool-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = URL(fileURLWithPath: binary)
+        try CodexHookInstaller(codexHome: root, helperSource: helper).install()
+        try body(root, helper, Date())
+    }
+
+    private static func spoolEvent(_ kind: CodexHookEvent.Kind, session: String,
+                                   home: URL, at: Date) throws -> URL {
+        let event = CodexHookEvent(kind: kind, timestamp: at, sessionID: session,
+                                  turnID: "turn", project: "fixture")
+        let file = home.appendingPathComponent("agentnotch/events/\(event.id).json")
+        try JSONEncoder().encode(event).write(to: file)
+        try FileManager.default.setAttributes([.modificationDate: at], ofItemAtPath: file.path)
+        return file
+    }
+
+    private static func spoolPruning() throws {
+        for cocoaError in [false, true] {
+            try monitorFixture { home, helper, now in
+                _ = try spoolEvent(.userPromptSubmit, session: "live", home: home, at: now.addingTimeInterval(-1))
+                let removed = try spoolEvent(.stop, session: "old", home: home, at: now.addingTimeInterval(-2))
+                let monitor = CodexMonitor(home: home, helperSource: helper) { url in
+                    if url.lastPathComponent == removed.lastPathComponent {
+                        // Deterministically delete between enumeration and read,
+                        // just as the helper's concurrent retention cleanup can.
+                        try FileManager.default.removeItem(at: url)
+                        if cocoaError { throw CocoaError(.fileReadNoSuchFile) }
+                    }
+                    return try CodexMonitor.readEventData(url)
+                }
+                let result = monitor.poll(now: now)
+                try expect(result.connection == .receiving, "a pruned event must not break the connection")
+                try expect(result.agents.contains { $0.id == "live" && $0.status == .working },
+                           "already-read activity must still be consumed")
+                let idle = monitor.poll(now: now.addingTimeInterval(301))
+                try expect(idle.connection == .waitingForEvents
+                    && CodexIndicator.resolve(agents: idle.agents, approvals: idle.approvals,
+                                              connection: idle.connection, now: now.addingTimeInterval(301)) == .none,
+                           "silence alone must not display the connection symbol")
+            }
+        }
+    }
+
+    private static func spoolReadFailure() throws {
+        try monitorFixture { home, helper, now in
+            _ = try spoolEvent(.permissionRequest, session: "approval", home: home, at: now.addingTimeInterval(-1))
+            let blocked = try spoolEvent(.stop, session: "blocked", home: home, at: now.addingTimeInterval(-2))
+            _ = try spoolEvent(.userPromptSubmit, session: "later", home: home, at: now.addingTimeInterval(-3))
+            var attempts = 0
+            let monitor = CodexMonitor(home: home, helperSource: helper) { url in
+                if url.lastPathComponent == blocked.lastPathComponent {
+                    attempts += 1
+                    if attempts == 1 { throw CocoaError(.fileReadNoPermission) }
+                }
+                return try CodexMonitor.readEventData(url)
+            }
+            let failed = monitor.poll(now: now)
+            try expect(failed.connection == .unavailable, "a real read denial must remain visible")
+            let recovered = monitor.poll(now: now.addingTimeInterval(1))
+            try expect(recovered.connection == .receiving && attempts == 2, "failed files must be retried")
+            try expect(recovered.approvals.contains { $0.sessionID == "approval" },
+                       "an approval read before the failure must not be permanently lost")
+            try expect(recovered.agents.contains { $0.id == "later" && $0.status == .working },
+                       "a failed file must not prevent reading the remaining events")
+            try expect(recovered.agents.contains { $0.id == "blocked" && $0.status == .finished },
+                       "the failed event must be applied after access recovers")
+        }
+    }
+
+    private static func spoolFileSafety() throws {
+        try monitorFixture { home, _, now in
+            let file = try spoolEvent(.userPromptSubmit, session: "live", home: home, at: now)
+            let regularData = try CodexMonitor.readEventData(file)
+            try expect(regularData != nil, "regular owned events remain readable")
+            let link = file.deletingLastPathComponent().appendingPathComponent("\(UUID()).json")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+            let linkedData = try CodexMonitor.readEventData(link)
+            try expect(linkedData == nil, "event symlinks must not be followed")
+            try Data(repeating: 0, count: 8193).write(to: file)
+            let oversizedData = try CodexMonitor.readEventData(file)
+            try expect(oversizedData == nil, "oversized events must not be loaded")
+        }
     }
 
     private static func geometry() throws {
