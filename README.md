@@ -128,6 +128,29 @@ varsayılmaz. Kota reset zamanı geçmişse yeni gözlem gelene kadar güncellem
 beklenir. Yerel ad-hoc build doğrulaması, Mac App Store istisna onayı anlamına
 gelmez. Mimari ve test planı: `Research/CodexReadOnly/IMPLEMENTATION_PLAN.md`.
 
+## Yerel izleyicilerin kaynak tüketimi
+
+Codex ve Claude izleyicileri oturum dosyalarını, olay kuyruğunu ve bağlantı
+kurulumunu ayrı değişiklik kaynakları olarak izler. Normal durumda bir araç
+olayı yalnız olay kuyruğunu yeniler; aynı olay helper hash'ini yeniden
+hesaplatmaz veya bütün Codex geçmişini taratmaz. Oturum dosyası değiştiğinde
+bilinen JSONL dosyasının yalnız eklenen bölümü okunur. Yeni klasörler ve
+kurtarma gerektiren değişikliklerde keşif yeniden yapılır.
+
+Native dosya/klasör bildirimleri FSEvents ile birlikte kullanılır. Her sağlayıcı
+başına en fazla 128 native dosya tanımlayıcısı tutulur; izlenemeyen veya henüz
+oluşmamış yollar hafif metadata kontrolüyle takip edilir. Değişmeyen içerikler
+bu kontrolde okunmaz. Bildirimler 100 ms'lik pencerede birleştirilir; yoğun olay
+akışı teslimi süresiz ertelemez. Bildirim kaybına karşı 60 saniyede bir tam
+uzlaştırma yapılır. Bir saniyelik zamanlama, sessizlik/kota sürelerini bellekte
+ilerletir ve yalnız native izlemesi olmayan yolların metadata'sını kontrol eder.
+
+Bağlantı dosyaları veya paket helper'ı değişmedikçe kurulum doğrulaması
+önbellekten kullanılır. Kurma, onarma ve kaldırmadaki sahiplik/güvenlik
+kontrolleri korunur. Widget kaldırılınca veya uygulama gizlenince bildirim
+kaynakları ve dosya tanımlayıcıları kapatılır. Ayrıntılar ve ölçüm sınırları:
+[izleme düzeltmesi doğrulama raporu](Research/Performance/CONTINUOUS_MONITORING_FIX_2026-10-22.md).
+
 ## Dosya deposu
 
 Finder’da bir dosya ya da klasörü sürüklemeye başladığında çentiğin altında küçük

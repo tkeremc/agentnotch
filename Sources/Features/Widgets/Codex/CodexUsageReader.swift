@@ -71,9 +71,18 @@ final class CodexUsageReader {
     private var lastKnown: CodexUsageSnapshot?
     private var lastKnownGroup: String?
     private var lastRefreshTime: Date?
+    private var cachedErrors: [CodexUsageReadError] = []
+    private var cachedCount = 0
+    private var rootUnavailable: CodexUsageAvailability?
+    private(set) var fullScanCount = 0
+    private(set) var fileReadCount = 0
+    private var directories: Set<String> = []
+    var observationPaths: [URL] {
+        (directories.sorted() + states.keys.sorted()).map { URL(fileURLWithPath: $0) }
+    }
 
-    func activitySnapshots(now: Date) -> [CodexAgentSnapshot] {
-        let names = titles.read()
+    func activitySnapshots(now: Date, refreshTitles: Bool = true) -> [CodexAgentSnapshot] {
+        let names = refreshTitles ? titles.read() : titles.cachedNames
         let agents = states.values.compactMap { state -> CodexAgentSnapshot? in
             guard !state.unsupportedChild, !state.malformedActivity else { return nil }
             return state.activity?.snapshot(at: now)
@@ -106,14 +115,19 @@ final class CodexUsageReader {
         titles = CodexThreadTitleIndex(url: root.deletingLastPathComponent().appendingPathComponent("session_index.jsonl"))
     }
 
-    func refresh(now: Date = .now) -> CodexUsageReadResult {
+    /// nil performs recovery discovery; explicit paths read only changed JSONL files.
+    func refresh(now: Date = .now, changedPaths: Set<String>? = nil) -> CodexUsageReadResult {
+        var changedPaths = changedPaths
         // A wall-clock correction must not leave an observation from the future
         // selected. Reparse on rollback; ordinary forward refreshes remain incremental.
         if let previous = lastRefreshTime, now < previous {
             states.removeAll()
             lastKnown = nil
             lastKnownGroup = nil
+            changedPaths = nil
         }
+        // Discovery errors need a complete retry before they can be cleared.
+        if !cachedErrors.isEmpty { changedPaths = nil }
         lastRefreshTime = now
         var errors: [CodexUsageReadError] = []
         var candidates: [URL] = []
@@ -124,12 +138,48 @@ final class CodexUsageReader {
             let currentRoot = URL(fileURLWithPath: root.path, isDirectory: true)
             let values = try currentRoot.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
             guard values.isDirectory == true, values.isSymbolicLink != true else {
+                rootUnavailable = .notFound
                 return result(.notFound, count: 0, errors: [])
             }
-            discover(root, candidates: &candidates, errors: &errors)
+            rootUnavailable = nil
+            if let paths = changedPaths, paths.allSatisfy({ $0.hasPrefix(root.path + "/") && $0.hasSuffix(".jsonl") }) {
+                for path in paths {
+                    let url = URL(fileURLWithPath: path)
+                    var info = stat()
+                    let status = lstat(path, &info)
+                    if (status != 0 && errno == ENOENT) || (status == 0 && info.st_mode & S_IFMT != S_IFREG) {
+                        states.removeValue(forKey: path)
+                        fileKeys.removeValue(forKey: path)
+                        continue
+                    }
+                    // File-level notifications must not bypass discovery's refusal
+                    // to traverse symlinked directories, including replaced parents.
+                    var parent = url.deletingLastPathComponent()
+                    var safe = true
+                    while parent.path.hasPrefix(root.path + "/") {
+                        if lstat(parent.path, &info) != 0 || info.st_mode & S_IFMT != S_IFDIR { safe = false; break }
+                        parent.deleteLastPathComponent()
+                    }
+                    if safe { candidates.append(url) }
+                    else {
+                        changedPaths = nil
+                        candidates = []
+                        directories = []
+                        fullScanCount += 1
+                        discover(root, candidates: &candidates, errors: &errors)
+                        break
+                    }
+                }
+            } else {
+                changedPaths = nil
+                fullScanCount += 1
+                directories = []
+                discover(root, candidates: &candidates, errors: &errors)
+            }
         } catch {
             errors.append(readError(error, key: nil))
             discoveryFailed = true
+            rootUnavailable = errors.last?.kind == .permissionDenied ? .permissionDenied : .notFound
         }
         var seen: Set<String> = []
         var scanned = 0
@@ -146,9 +196,26 @@ final class CodexUsageReader {
         }
         // A failed subtree discovery must not make previously observed accounts
         // disappear, allowing a different account to be silently selected.
-        if !discoveryFailed && errors.isEmpty {
+        if changedPaths == nil && !discoveryFailed && errors.isEmpty {
             states = states.filter { seen.contains($0.key) }
+            fileKeys = fileKeys.filter { seen.contains($0.key) }
         }
+        cachedErrors = errors
+        cachedCount = changedPaths == nil ? scanned : states.count
+        return project(now: now)
+    }
+
+    /// Expiry and clock-skewed observations advance without enumerating/opening files.
+    func advance(now: Date) -> CodexUsageReadResult {
+        if let previous = lastRefreshTime, now < previous { return refresh(now: now) }
+        lastRefreshTime = now
+        return project(now: now)
+    }
+
+    private func project(now: Date) -> CodexUsageReadResult {
+        let errors = cachedErrors
+        let scanned = cachedCount
+        if let rootUnavailable { return result(rootUnavailable, count: scanned, errors: errors) }
         for path in Array(states.keys) {
             guard var state = states[path] else { continue }
             for (bucket, pending) in state.deferredBuckets {
@@ -204,6 +271,7 @@ final class CodexUsageReader {
 
     private func discover(_ directory: URL, candidates: inout [URL],
                           errors: inout [CodexUsageReadError]) {
+        directories.insert(directory.path)
         do {
             let entries = try files.contentsOfDirectory(at: directory,
                 includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey])
@@ -227,6 +295,7 @@ final class CodexUsageReader {
         let resourceID = "\(attributes[.systemNumber] ?? ""):\(attributes[.systemFileNumber] ?? "")"
         let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
         let modifiedAt = attributes[.modificationDate] as? Date
+        fileReadCount += 1
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         let prefix = try handle.read(upToCount: min(128, Int(min(size, 128)))) ?? Data()
@@ -409,6 +478,7 @@ private final class CodexThreadTitleIndex {
     private let url: URL
     private var signature: String?
     private var names: [String: String] = [:]
+    var cachedNames: [String: String] { names }
 
     init(url: URL) { self.url = url }
 

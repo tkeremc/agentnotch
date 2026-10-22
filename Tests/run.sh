@@ -80,6 +80,7 @@ import Darwin
         let cases = CodexActivityTests.cases + CodexUsageTests.cases
             + CodexHookInstallerTests.cases + CodexStoreTests.cases + LocalizationTests.cases
             + ClaudeActivityTests.cases + ClaudeStoreTests.cases + ClaudeHookInstallerTests.cases
+            + MonitorPerformanceTests.cases
         var failures = 0
         for (name, test) in cases {
             do { try test(); print("PASS: \(name)") }
@@ -94,6 +95,7 @@ SWIFT
         "$source_root/Tests/CodexHookInstallerTests.swift" "$source_root/Tests/CodexStoreTests.swift"
         "$source_root/Tests/LocalizationTests.swift" "$source_root/Tests/ClaudeActivityTests.swift"
         "$source_root/Tests/ClaudeStoreTests.swift" "$source_root/Tests/ClaudeHookInstallerTests.swift"
+        "$source_root/Tests/MonitorPerformanceTests.swift"
         "$test_build/CodexTestsMain.swift")
 fi
 

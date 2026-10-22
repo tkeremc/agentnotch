@@ -204,3 +204,16 @@ For an isolated desktop-launchable sandbox probe, build with
 Open the printed application in the desktop session: its window shows each check
 and `agentnotch/probe-results.txt` inside the printed fixture records the results.
 This mode performs no real Claude installation.
+
+
+## Sürekli izleme performans regresyonları
+
+`AGENTNOTCH_TEST_SCOPE=codex bash Tests/run.sh`, Codex ve Claude kontrollerine
+12 izleme regresyonunu da ekler. Değişikliksiz turlardaki sıfır ilave tarama ve
+hash doğrulaması; hedefli dosya okuma, yeni klasör, atomik değişim, descriptor
+bütçesi sonrası metadata fallback, gelecek tarihli olaylar ve süreç liveness
+koruması gerçek üretim tipleriyle denetlenir.
+
+Sentetik eski/yeni CPU karşılaştırması ve dar izinli sandbox probe komutları:
+[izleme düzeltmesi doğrulama raporu](../Research/Performance/CONTINUOUS_MONITORING_FIX_2026-10-22.md).
+Bu benchmark bütün uygulamanın CPU, bellek veya pil ölçümü değildir.

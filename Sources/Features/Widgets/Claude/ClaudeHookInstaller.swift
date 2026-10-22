@@ -92,8 +92,11 @@ struct ClaudeHookInstaller {
         }
     }
 
-    var needsRepair: Bool {
-        guard !isInstalled, (try? validatePaths()) != nil,
+    var needsRepair: Bool { needsRepair(installed: isInstalled) }
+
+    /// Reuse the full validation already performed by the caller.
+    func needsRepair(installed: Bool) -> Bool {
+        guard !installed, (try? validatePaths()) != nil,
               let manifest = try? readManifest(), let root = try? readSettings(),
               (try? validateOwnership(manifest, root: root)) != nil else { return false }
         return true

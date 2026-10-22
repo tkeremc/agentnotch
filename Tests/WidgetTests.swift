@@ -32,7 +32,7 @@ struct WidgetTests {
         ] + FileShelfTests.cases + FileShelfDragTests.cases + LocalizationTests.cases + NowPlayingTests.cases
           + CodexActivityTests.cases + CodexUsageTests.cases + CodexHookInstallerTests.cases
           + CodexStoreTests.cases + ClaudeActivityTests.cases + ClaudeStoreTests.cases
-          + ClaudeHookInstallerTests.cases
+          + ClaudeHookInstallerTests.cases + MonitorPerformanceTests.cases
         var failures = 0
         for (name, test) in tests {
             do {

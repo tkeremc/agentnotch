@@ -81,8 +81,11 @@ struct CodexHookInstaller {
 
     /// An owned installation can be migrated/repaired explicitly, including
     /// after an app move or resource update. Modified definitions are conflicts.
-    var needsRepair: Bool {
-        guard !isInstalled, (try? validatePaths()) != nil,
+    var needsRepair: Bool { needsRepair(installed: isInstalled) }
+
+    /// Reuse the full validation already performed by the caller.
+    func needsRepair(installed: Bool) -> Bool {
+        guard !installed, (try? validatePaths()) != nil,
               let manifest = try? readManifest(), let root = try? readHooks(),
               (try? validateOwnership(manifest, hooks: root["hooks"] as? [String: Any] ?? [:])) != nil else { return false }
         return true

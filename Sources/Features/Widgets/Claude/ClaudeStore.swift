@@ -51,6 +51,26 @@ final class ClaudeMonitor {
     private var lastHookAt: Date?
     private var lastPollAt: Date?
 
+    private var installed = false
+    private var needsRepair = false
+    private var didValidate = false
+    private var eventAccessFailed = false
+    private var retryEventsAt: Date?
+    private(set) var eventScanCount = 0
+    private(set) var validationCount = 0
+    var runtimeScanCount: Int { runtime.fileScanCount }
+
+    var observationRoots: [URL] {
+        let installer = ClaudeHookInstaller(claudeHome: home, helperSource: helperSource)
+        return [home.appendingPathComponent("sessions"),
+                home.appendingPathComponent("agentnotch/events"),
+                home.appendingPathComponent("agentnotch/installation.json"),
+                home.appendingPathComponent("settings.json")]
+            + [installer.executionURL].compactMap { $0 }
+    }
+
+    var observationPaths: [URL] { observationRoots + runtime.observationPaths }
+
     init(home: URL, helperSource: URL? = nil,
          eventData: @escaping (URL) throws -> Data? = ClaudeMonitor.readEventData) {
         self.home = home
@@ -59,7 +79,9 @@ final class ClaudeMonitor {
         runtime = ClaudeRuntimeReader(home: home)
     }
 
-    func poll(now: Date = .now) -> ClaudeMonitorSnapshot {
+    func poll(now: Date = .now, changes: MonitorChanges = .all) -> ClaudeMonitorSnapshot {
+        var changes = changes
+        if lastPollAt == nil || now < lastPollAt! { changes = .all }
         if let previous = lastPollAt, now < previous {
             // A corrected wall clock must not preserve a future watermark.
             activity = ClaudeActivityState()
@@ -69,67 +91,83 @@ final class ClaudeMonitor {
         }
         lastPollAt = now
         let directory = home.appendingPathComponent("agentnotch/events", isDirectory: true)
-        var eventAccessFailed = false
-        if FileManager.default.fileExists(atPath: directory.path) {
-            do {
-                guard Self.safeDirectory(home),
-                      Self.safeDirectory(home.appendingPathComponent("agentnotch")),
-                      Self.safeDirectory(directory) else { throw CocoaError(.fileReadNoPermission) }
-                let urls = try FileManager.default.contentsOfDirectory(at: directory,
-                    includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
-                                                  .contentModificationDateKey], options: [.skipsHiddenFiles])
-                    .filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
-                    .sorted {
-                        let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                        let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                        return lhs == rhs ? $0.lastPathComponent < $1.lastPathComponent : lhs > rhs
-                    }
-                let eligible = Array(urls.prefix(4096))
-                seenFiles.formIntersection(Set(eligible.map(\.lastPathComponent)))
-                var incoming: [ClaudeHookEvent] = []
-                for url in eligible where !seenFiles.contains(url.lastPathComponent) {
-                    do {
-                        guard let data = try eventData(url) else {
-                            seenFiles.insert(url.lastPathComponent)
-                            continue
+        if changes.affects(directory) || retryEventsAt.map({ $0 <= now }) == true {
+            eventScanCount += 1
+            eventAccessFailed = false
+            retryEventsAt = nil
+            if FileManager.default.fileExists(atPath: directory.path) {
+                do {
+                    guard Self.safeDirectory(home),
+                          Self.safeDirectory(home.appendingPathComponent("agentnotch")),
+                          Self.safeDirectory(directory) else { throw CocoaError(.fileReadNoPermission) }
+                    let urls = try FileManager.default.contentsOfDirectory(at: directory,
+                        includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+                                                      .contentModificationDateKey], options: [.skipsHiddenFiles])
+                        .filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
+                        .sorted {
+                            let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                            let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                            return lhs == rhs ? $0.lastPathComponent < $1.lastPathComponent : lhs > rhs
                         }
-                        if let event = try? JSONDecoder().decode(ClaudeHookEvent.self, from: data),
-                           event.schemaVersion == 1, UUID(uuidString: event.id) != nil {
-                            // A clock-skewed event must not move a reducer watermark
-                            // ahead of real activity. Retry it when time catches up.
-                            if event.timestamp > now { continue }
-                            guard event.timestamp >= now.addingTimeInterval(-7 * 86400) else {
+                    let eligible = Array(urls.prefix(4096))
+                    seenFiles.formIntersection(Set(eligible.map(\.lastPathComponent)))
+                    var incoming: [ClaudeHookEvent] = []
+                    for url in eligible where !seenFiles.contains(url.lastPathComponent) {
+                        do {
+                            guard let data = try eventData(url) else {
                                 seenFiles.insert(url.lastPathComponent)
                                 continue
                             }
-                            incoming.append(event)
-                            lastHookAt = max(lastHookAt ?? .distantPast, event.timestamp)
+                            if let event = try? JSONDecoder().decode(ClaudeHookEvent.self, from: data),
+                               event.schemaVersion == 1, UUID(uuidString: event.id) != nil {
+                                // A clock-skewed event must not move a reducer watermark
+                                // ahead of real activity. Retry it when time catches up.
+                                if event.timestamp > now {
+                                    retryEventsAt = min(retryEventsAt ?? event.timestamp, event.timestamp)
+                                    continue
+                                }
+                                guard event.timestamp >= now.addingTimeInterval(-7 * 86400) else {
+                                    seenFiles.insert(url.lastPathComponent)
+                                    continue
+                                }
+                                incoming.append(event)
+                                lastHookAt = max(lastHookAt ?? .distantPast, event.timestamp)
+                            }
+                            seenFiles.insert(url.lastPathComponent)
+                        } catch {
+                            // The helper prunes old files while we scan. A listed
+                            // event disappearing is normal, not a lost connection.
+                            let error = error as NSError
+                            let missing = (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
+                                || (error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadNoSuchFile.rawValue)
+                            if !missing { eventAccessFailed = true }
+                            // Retry actual read failures next poll. Other events
+                            // must still reach the reducer during this poll.
                         }
-                        seenFiles.insert(url.lastPathComponent)
-                    } catch {
-                        // The helper prunes old files while we scan. A listed
-                        // event disappearing is normal, not a lost connection.
-                        let error = error as NSError
-                        let missing = (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
-                            || (error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadNoSuchFile.rawValue)
-                        if !missing { eventAccessFailed = true }
-                        // Retry actual read failures next poll. Other events
-                        // must still reach the reducer during this poll.
                     }
-                }
-                for event in incoming.sorted(by: {
-                    $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
-                }) {
-                    activity.consume(event)
-                    usage.consume(event, now: now)
-                }
-            } catch { eventAccessFailed = true }
+                    for event in incoming.sorted(by: {
+                        $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
+                    }) {
+                        activity.consume(event)
+                        usage.consume(event, now: now)
+                    }
+                } catch { eventAccessFailed = true }
+            }
+            if eventAccessFailed { retryEventsAt = now.addingTimeInterval(5) }
         }
         let installer = ClaudeHookInstaller(claudeHome: home, helperSource: helperSource)
-        let installed = installer.isInstalled
+        let configuration = home.appendingPathComponent("settings.json")
+        if !didValidate || changes.affects(configuration)
+            || changes.affects(home.appendingPathComponent("agentnotch/installation.json"))
+            || installer.executionURL.map({ changes.affects($0) }) == true {
+            validationCount += 1
+            installed = installer.isInstalled
+            needsRepair = installer.needsRepair(installed: installed)
+            didValidate = true
+        }
         let connection: CodexConnection
         if eventAccessFailed { connection = .unavailable }
-        else if installer.needsRepair { connection = .repairRequired }
+        else if needsRepair { connection = .repairRequired }
         else if !installed { connection = .notInstalled }
         else if let lastHookAt, now.timeIntervalSince(lastHookAt) < 300 { connection = .receiving }
         else { connection = .waitingForEvents }
@@ -138,7 +176,7 @@ final class ClaudeMonitor {
             availability: eventAccessFailed ? .permissionDenied : (currentUsage == nil ? .noData : .available),
             scannedFiles: seenFiles.count, readErrors: [])
         let projection = ClaudeActivityProjection(
-            runtime: runtime.poll(now: now),
+            runtime: runtime.poll(now: now, refreshFiles: changes.affects(home.appendingPathComponent("sessions"))),
             hooked: installed && !eventAccessFailed ? activity.agents(at: now) : [],
             approvals: installed && !eventAccessFailed ? activity.pendingApprovals(at: now) : [])
         return ClaudeMonitorSnapshot(usage: usageResult,
@@ -190,7 +228,7 @@ final class ClaudeStore: ObservableObject {
     private let helperSource: URL?
     private let queue = DispatchQueue(label: "com.agentnotch.claude", qos: .utility)
     private var monitor: ClaudeMonitor
-    private var timer: DispatchSourceTimer?
+    private var driver: LocalMonitorDriver?
     private var generation = 0
     private var accessURL: URL?
     private var home: URL
@@ -219,39 +257,39 @@ final class ClaudeStore: ObservableObject {
     }
 
     deinit {
-        timer?.cancel()
+        driver?.stop()
         accessURL?.stopAccessingSecurityScopedResource()
     }
 
     func start() {
-        guard timer == nil else { return }
+        guard driver == nil else { return }
         generation += 1
         let token = generation
         let monitor = monitor
-        let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(100))
-        source.setEventHandler { [weak self] in
-            let result = monitor.poll()
+        let source = LocalMonitorDriver(home: home, observed: monitor.observationRoots, queue: queue,
+            recursiveDirectories: [home.appendingPathComponent("sessions"), home.appendingPathComponent("agentnotch/events")],
+            watchPaths: { monitor.observationPaths }) { [weak self] changes in
+            let result = monitor.poll(changes: changes)
             Task { @MainActor [weak self] in
-                guard let self, self.generation == token, self.timer != nil else { return }
+                guard let self, self.generation == token, self.driver != nil else { return }
                 self.apply(result)
             }
         }
-        timer = source
-        source.resume()
+        driver = source
+        source.start()
     }
 
     func stop() {
         generation += 1
-        timer?.cancel()
-        timer = nil
+        driver?.stop()
+        driver = nil
         approvals = []
         indicator = .none
         compactAgents = []
     }
 
     func retry() {
-        let wasRunning = timer != nil
+        let wasRunning = driver != nil
         stop()
         // A fresh monitor also retries previously unreadable/replaced events.
         monitor = ClaudeMonitor(home: home, helperSource: helperSource)
@@ -266,7 +304,7 @@ final class ClaudeStore: ObservableObject {
         let token = generation
         queue.async { [weak self] in
             let installed = installer.isInstalled
-            let needsRepair = installer.needsRepair
+            let needsRepair = installer.needsRepair(installed: installed)
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token, !self.isChangingConnection else { return }
                 if needsRepair { self.connection = .repairRequired }
@@ -327,7 +365,7 @@ final class ClaudeStore: ObservableObject {
                 guard let self else { return }
                 self.isChangingConnection = false
                 if succeeded {
-                    let wasRunning = self.timer != nil
+                    let wasRunning = self.driver != nil
                     self.stop()
                     self.home = selected
                     self.monitor = ClaudeMonitor(home: selected, helperSource: self.helperSource)
@@ -355,7 +393,7 @@ final class ClaudeStore: ObservableObject {
                 guard let self else { return }
                 self.isChangingConnection = false
                 if succeeded {
-                    let wasRunning = self.timer != nil
+                    let wasRunning = self.driver != nil
                     self.stop()
                     self.defaults.removeObject(forKey: Self.bookmarkKey)
                     self.accessURL?.stopAccessingSecurityScopedResource()
@@ -372,21 +410,23 @@ final class ClaudeStore: ObservableObject {
     }
 
     private func apply(_ result: ClaudeMonitorSnapshot) {
-        usage = result.usage.snapshot
-        usageAvailability = result.usage.availability
-        agents = result.agents
-        approvals = result.approvals
-        lastHookAt = result.lastHookAt
-        connection = result.connection
-        indicator = result.agents.contains(where: { $0.status == .approvalRequested }) ? .approval
+        if usage != result.usage.snapshot { usage = result.usage.snapshot }
+        if usageAvailability != result.usage.availability { usageAvailability = result.usage.availability }
+        if agents != result.agents { agents = result.agents }
+        if approvals != result.approvals { approvals = result.approvals }
+        if lastHookAt != result.lastHookAt { lastHookAt = result.lastHookAt }
+        if connection != result.connection { connection = result.connection }
+        let nextIndicator = result.agents.contains(where: { $0.status == .approvalRequested }) ? .approval
             : CodexIndicator.resolve(agents: result.agents, approvals: result.approvals,
                                      connection: result.connection)
-        compactAgents = CodexCompactAgent.make(agents: result.agents, approvals: result.approvals,
+        let nextCompactAgents = CodexCompactAgent.make(agents: result.agents, approvals: result.approvals,
                                               connection: result.connection).map {
             CodexCompactAgent(id: $0.id == "codex-status" ? "claude-status" : $0.id,
                               name: $0.name == "Codex" ? "Claude" : $0.name,
                               indicator: $0.indicator, iconName: "ClaudeMark")
         }
+        if indicator != nextIndicator { indicator = nextIndicator }
+        if compactAgents != nextCompactAgents { compactAgents = nextCompactAgents }
     }
 }
 
@@ -395,66 +435,84 @@ final class ClaudeStore: ObservableObject {
 final class ClaudeRuntimeReader {
     private let home: URL
     private let processMatches: (Int32, String) -> Bool
+    private var records: [(pid: Int32, start: String, snapshot: CodexAgentSnapshot)] = []
+    private(set) var fileScanCount = 0
+    private(set) var observationPaths: [URL] = []
     init(home: URL, processMatches: @escaping (Int32, String) -> Bool = ClaudeRuntimeReader.processMatches) {
         self.home = home
         self.processMatches = processMatches
     }
-    func poll(now: Date) -> [CodexAgentSnapshot] {
-        let directory = home.appendingPathComponent("sessions", isDirectory: true)
-        var info = stat()
-        guard ClaudeMonitor.safeDirectory(home), lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
-              info.st_uid == getuid(),
-              let urls = try? FileManager.default.contentsOfDirectory(at: directory,
-                includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+    func poll(now: Date, refreshFiles: Bool = true) -> [CodexAgentSnapshot] {
+        if refreshFiles {
+            fileScanCount += 1
+            records = []
+            observationPaths = []
+            let directory = home.appendingPathComponent("sessions", isDirectory: true)
+            var info = stat()
+            guard ClaudeMonitor.safeDirectory(home), lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+                  info.st_uid == getuid(),
+                  let urls = try? FileManager.default.contentsOfDirectory(at: directory,
+                    includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+            observationPaths = urls.filter { $0.pathExtension == "json" }
+            for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).prefix(512) {
+                guard url.pathExtension == "json", let filePID = Int32(url.deletingPathExtension().lastPathComponent),
+                      filePID > 0, let data = try? ClaudeMonitor.readEventData(url),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let pid = Self.number(object["pid"]), pid == Double(filePID),
+                      object["pidDomain"] as? String == "darwin",
+                      let start = object["procStart"] as? String,
+                      let session = object["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 512,
+                      let milliseconds = Self.number(object["statusUpdatedAt"]),
+                      milliseconds > 0 else { continue }
+                let at = Date(timeIntervalSince1970: milliseconds / 1000)
+                // This registry updates on transitions, not a heartbeat. A verified
+                // identical live process keeps a durable busy/waiting state valid.
+                guard let raw = object["status"] as? String else { continue }
+                let status: CodexAgentStatus
+                switch raw {
+                case "busy", "shell": status = .working
+                case "idle": status = .idle
+                case "waiting":
+                    // Only a documented permission wait is a permission indicator.
+                    status = object["waitingFor"] as? String == "permission prompt" ? .approvalRequested : .unknown
+                default: continue
+                }
+                let project = ((object["cwd"] as? String ?? "") as NSString).lastPathComponent
+                let name = (object["name"] as? String).flatMap { raw -> String? in
+                    let cleaned = raw.components(separatedBy: .controlCharacters).joined(separator: " ")
+                        .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+                    return cleaned.isEmpty ? nil : String(cleaned.prefix(256))
+                }
+                let snapshot = CodexAgentSnapshot(id: session, project: project, name: nil,
+                    status: status, updatedAt: at, conversationTitle: name)
+                records.append((filePID, start, snapshot))
+            }
+        }
+        // A cached registry is not proof of liveness. Recheck the process identity
+        // even on memory-only ticks so exited/reused PIDs cannot remain busy.
         var result: [String: CodexAgentSnapshot] = [:]
-        for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).prefix(512) {
-            guard url.pathExtension == "json", let filePID = Int32(url.deletingPathExtension().lastPathComponent),
-                  filePID > 0, let data = try? ClaudeMonitor.readEventData(url),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let pid = Self.number(object["pid"]), pid == Double(filePID),
-                  object["pidDomain"] as? String == "darwin",
-                  let start = object["procStart"] as? String,
-                  processMatches(filePID, start),
-                  let session = object["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 512,
-                  let milliseconds = Self.number(object["statusUpdatedAt"]),
-                  milliseconds > 0 else { continue }
-            let at = Date(timeIntervalSince1970: milliseconds / 1000)
-            // This registry updates on transitions, not a heartbeat. A verified
-            // identical live process keeps a durable busy/waiting state valid.
-            guard at <= now,
-                  let raw = object["status"] as? String else { continue }
-            let status: CodexAgentStatus
-            switch raw {
-            case "busy", "shell": status = .working
-            case "idle": status = .idle
-            case "waiting":
-                // Only a documented permission wait is a permission indicator.
-                status = object["waitingFor"] as? String == "permission prompt" ? .approvalRequested : .unknown
-            default: continue
+        for record in records where record.snapshot.updatedAt <= now && processMatches(record.pid, record.start) {
+            let snapshot = record.snapshot
+            if result[snapshot.id].map({ snapshot.updatedAt >= $0.updatedAt }) ?? true {
+                result[snapshot.id] = snapshot
             }
-            let project = ((object["cwd"] as? String ?? "") as NSString).lastPathComponent
-            let name = (object["name"] as? String).flatMap { raw -> String? in
-                let cleaned = raw.components(separatedBy: .controlCharacters).joined(separator: " ")
-                    .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-                return cleaned.isEmpty ? nil : String(cleaned.prefix(256))
-            }
-            let snapshot = CodexAgentSnapshot(id: session, project: project, name: nil,
-                status: status, updatedAt: at, conversationTitle: name)
-            if result[session].map({ at >= $0.updatedAt }) ?? true { result[session] = snapshot }
         }
         return result.values.sorted { $0.id < $1.id }
     }
+    private static let processDateFormatter: DateFormatter = {
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.timeZone = TimeZone(secondsFromGMT: 0)
+        format.dateFormat = "EEE MMM d HH:mm:ss yyyy"
+        return format
+    }()
     static func processMatches(_ pid: Int32, _ expected: String) -> Bool {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
               info.pbi_uid == getuid(), info.pbi_pid == UInt32(pid) else { return false }
-        let format = DateFormatter()
-        format.locale = Locale(identifier: "en_US_POSIX")
         // Claude normalizes ps lstart to UTC; the field itself has no zone.
-        format.timeZone = TimeZone(secondsFromGMT: 0)
-        format.dateFormat = "EEE MMM d HH:mm:ss yyyy"
-        let actual = format.string(from: Date(timeIntervalSince1970: Double(info.pbi_start_tvsec)))
+        let actual = processDateFormatter.string(from: Date(timeIntervalSince1970: Double(info.pbi_start_tvsec)))
         func normalized(_ value: String) -> String { value.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
         return normalized(actual) == normalized(expected)
     }

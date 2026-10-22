@@ -111,9 +111,30 @@ final class CodexMonitor {
     private var activity = CodexActivityState()
     private var seenFiles: Set<String> = []
     private var lastHookAt: Date?
-    private var lastUsageRefresh = Date.distantPast
+    private var lastPollAt: Date?
     private var usageResult = CodexUsageReadResult(snapshot: nil, availability: .noData,
                                                   scannedFiles: 0, readErrors: [])
+
+    private var installed = false
+    private var needsRepair = false
+    private var didValidate = false
+    private var eventAccessFailed = false
+    private var retryEventsAt: Date?
+    private(set) var eventScanCount = 0
+    private(set) var validationCount = 0
+    var usageScanCount: Int { usage.fullScanCount }
+    var usageFileReadCount: Int { usage.fileReadCount }
+
+    var observationRoots: [URL] {
+        let installer = CodexHookInstaller(codexHome: home, helperSource: helperSource)
+        return [home.appendingPathComponent("sessions"),
+                home.appendingPathComponent("agentnotch/events"),
+                home.appendingPathComponent("agentnotch/installation.json"),
+                home.appendingPathComponent("hooks.json")] + [home.appendingPathComponent("session_index.jsonl")]
+            + [installer.executionURL].compactMap { $0 }
+    }
+
+    var observationPaths: [URL] { observationRoots + usage.observationPaths }
 
     init(home: URL, helperSource: URL? = nil,
          eventData: @escaping (URL) throws -> Data? = CodexMonitor.readEventData) {
@@ -123,73 +144,96 @@ final class CodexMonitor {
         usage = CodexUsageReader(sessionsDirectory: home.appendingPathComponent("sessions"))
     }
 
-    func poll(now: Date = .now) -> CodexMonitorSnapshot {
-        if now.timeIntervalSince(lastUsageRefresh) >= 1 {
-            usageResult = usage.refresh(now: now)
-            lastUsageRefresh = now
-        }
+    func poll(now: Date = .now, changes: MonitorChanges = .all) -> CodexMonitorSnapshot {
+        var changes = changes
+        if lastPollAt == nil || now < lastPollAt! { changes = .all }
+        lastPollAt = now
+        let sessions = home.appendingPathComponent("sessions")
+        if changes.reconcile { usageResult = usage.refresh(now: now) }
+        else if changes.affects(sessions) {
+            usageResult = usage.refresh(now: now, changedPaths: changes.paths.filter {
+                MonitorChanges(paths: [$0]).affects(sessions)
+            })
+        } else { usageResult = usage.advance(now: now) }
         let directory = home.appendingPathComponent("agentnotch/events", isDirectory: true)
-        var eventAccessFailed = false
-        if FileManager.default.fileExists(atPath: directory.path) {
-            do {
-                let values = try directory.resourceValues(forKeys: [.isSymbolicLinkKey])
-                guard values.isSymbolicLink != true else { throw CocoaError(.fileReadNoPermission) }
-                let urls = try FileManager.default.contentsOfDirectory(at: directory,
-                    includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
-                                                  .contentModificationDateKey], options: [.skipsHiddenFiles])
-                    .filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
-                    .sorted {
-                        let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                        let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                        return lhs == rhs ? $0.lastPathComponent < $1.lastPathComponent : lhs > rhs
-                    }
-                let eligible = Array(urls.prefix(4096))
-                seenFiles.formIntersection(Set(eligible.map(\.lastPathComponent)))
-                var incoming: [CodexHookEvent] = []
-                for url in eligible where !seenFiles.contains(url.lastPathComponent) {
-                    do {
-                        guard let data = try eventData(url) else {
-                            seenFiles.insert(url.lastPathComponent)
-                            continue
+        if changes.affects(directory) || retryEventsAt.map({ $0 <= now }) == true {
+            eventScanCount += 1
+            eventAccessFailed = false
+            retryEventsAt = nil
+            if FileManager.default.fileExists(atPath: directory.path) {
+                do {
+                    let values = try directory.resourceValues(forKeys: [.isSymbolicLinkKey])
+                    guard values.isSymbolicLink != true else { throw CocoaError(.fileReadNoPermission) }
+                    let urls = try FileManager.default.contentsOfDirectory(at: directory,
+                        includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey,
+                                                      .contentModificationDateKey], options: [.skipsHiddenFiles])
+                        .filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
+                        .sorted {
+                            let lhs = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                            let rhs = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                            return lhs == rhs ? $0.lastPathComponent < $1.lastPathComponent : lhs > rhs
                         }
-                        if let event = try? JSONDecoder().decode(CodexHookEvent.self, from: data),
-                           event.schemaVersion == 1, UUID(uuidString: event.id) != nil {
-                            // A clock-skewed event must not move a reducer watermark
-                            // ahead of real activity. Retry it when time catches up.
-                            if event.timestamp > now { continue }
-                            guard event.timestamp >= now.addingTimeInterval(-7 * 86400) else {
+                    let eligible = Array(urls.prefix(4096))
+                    seenFiles.formIntersection(Set(eligible.map(\.lastPathComponent)))
+                    var incoming: [CodexHookEvent] = []
+                    for url in eligible where !seenFiles.contains(url.lastPathComponent) {
+                        do {
+                            guard let data = try eventData(url) else {
                                 seenFiles.insert(url.lastPathComponent)
                                 continue
                             }
-                            incoming.append(event)
-                            lastHookAt = max(lastHookAt ?? .distantPast, event.timestamp)
+                            if let event = try? JSONDecoder().decode(CodexHookEvent.self, from: data),
+                               event.schemaVersion == 1, UUID(uuidString: event.id) != nil {
+                                // A clock-skewed event must not move a reducer watermark
+                                // ahead of real activity. Retry it when time catches up.
+                                if event.timestamp > now {
+                                    retryEventsAt = min(retryEventsAt ?? event.timestamp, event.timestamp)
+                                    continue
+                                }
+                                guard event.timestamp >= now.addingTimeInterval(-7 * 86400) else {
+                                    seenFiles.insert(url.lastPathComponent)
+                                    continue
+                                }
+                                incoming.append(event)
+                                lastHookAt = max(lastHookAt ?? .distantPast, event.timestamp)
+                            }
+                            seenFiles.insert(url.lastPathComponent)
+                        } catch {
+                            // The helper prunes old files while we scan. A listed
+                            // event disappearing is normal, not a lost connection.
+                            let error = error as NSError
+                            let missing = (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
+                                || (error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadNoSuchFile.rawValue)
+                            if !missing { eventAccessFailed = true }
+                            // Retry actual read failures next poll. Other events
+                            // must still reach the reducer during this poll.
                         }
-                        seenFiles.insert(url.lastPathComponent)
-                    } catch {
-                        // The helper prunes old files while we scan. A listed
-                        // event disappearing is normal, not a lost connection.
-                        let error = error as NSError
-                        let missing = (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
-                            || (error.domain == NSCocoaErrorDomain && error.code == CocoaError.fileReadNoSuchFile.rawValue)
-                        if !missing { eventAccessFailed = true }
-                        // Retry actual read failures next poll. Other events
-                        // must still reach the reducer during this poll.
                     }
-                }
-                for event in incoming.sorted(by: {
-                    $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
-                }) { activity.consume(event) }
-            } catch { eventAccessFailed = true }
+                    for event in incoming.sorted(by: {
+                        $0.timestamp == $1.timestamp ? $0.id < $1.id : $0.timestamp < $1.timestamp
+                    }) { activity.consume(event) }
+                } catch { eventAccessFailed = true }
+            }
+            if eventAccessFailed { retryEventsAt = now.addingTimeInterval(5) }
         }
         let installer = CodexHookInstaller(codexHome: home, helperSource: helperSource)
-        let installed = installer.isInstalled
+        let configuration = home.appendingPathComponent("hooks.json")
+        if !didValidate || changes.affects(configuration)
+            || changes.affects(home.appendingPathComponent("agentnotch/installation.json"))
+            || installer.executionURL.map({ changes.affects($0) }) == true {
+            validationCount += 1
+            installed = installer.isInstalled
+            needsRepair = installer.needsRepair(installed: installed)
+            didValidate = true
+        }
         let connection: CodexConnection
         if eventAccessFailed { connection = .unavailable }
-        else if installer.needsRepair { connection = .repairRequired }
+        else if needsRepair { connection = .repairRequired }
         else if !installed { connection = .notInstalled }
         else if let lastHookAt, now.timeIntervalSince(lastHookAt) < 300 { connection = .receiving }
         else { connection = .waitingForEvents }
-        let projection = CodexActivityProjection(observed: usage.activitySnapshots(now: now),
+        let projection = CodexActivityProjection(observed: usage.activitySnapshots(now: now,
+                refreshTitles: changes.affects(home.appendingPathComponent("session_index.jsonl"))),
             hooked: installed && !eventAccessFailed ? activity.agents(at: now) : [],
             approvals: installed && !eventAccessFailed ? activity.pendingApprovals(at: now) : [])
         return CodexMonitorSnapshot(usage: usageResult, agents: projection.agents,
@@ -233,7 +277,7 @@ final class CodexStore: ObservableObject {
     private let helperSource: URL?
     private let queue = DispatchQueue(label: "com.agentnotch.codex", qos: .utility)
     private var monitor: CodexMonitor
-    private var timer: DispatchSourceTimer?
+    private var driver: LocalMonitorDriver?
     private var generation = 0
     private var accessURL: URL?
     private var home: URL
@@ -262,39 +306,39 @@ final class CodexStore: ObservableObject {
     }
 
     deinit {
-        timer?.cancel()
+        driver?.stop()
         accessURL?.stopAccessingSecurityScopedResource()
     }
 
     func start() {
-        guard timer == nil else { return }
+        guard driver == nil else { return }
         generation += 1
         let token = generation
         let monitor = monitor
-        let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(100))
-        source.setEventHandler { [weak self] in
-            let result = monitor.poll()
+        let source = LocalMonitorDriver(home: home, observed: monitor.observationRoots, queue: queue,
+            recursiveDirectories: [home.appendingPathComponent("sessions"), home.appendingPathComponent("agentnotch/events")],
+            watchPaths: { monitor.observationPaths }) { [weak self] changes in
+            let result = monitor.poll(changes: changes)
             Task { @MainActor [weak self] in
-                guard let self, self.generation == token, self.timer != nil else { return }
+                guard let self, self.generation == token, self.driver != nil else { return }
                 self.apply(result)
             }
         }
-        timer = source
-        source.resume()
+        driver = source
+        source.start()
     }
 
     func stop() {
         generation += 1
-        timer?.cancel()
-        timer = nil
+        driver?.stop()
+        driver = nil
         approvals = []
         indicator = .none
         compactAgents = []
     }
 
     func retry() {
-        let wasRunning = timer != nil
+        let wasRunning = driver != nil
         stop()
         // A fresh monitor also retries previously unreadable/replaced events.
         monitor = CodexMonitor(home: home, helperSource: helperSource)
@@ -309,7 +353,7 @@ final class CodexStore: ObservableObject {
         let token = generation
         queue.async { [weak self] in
             let installed = installer.isInstalled
-            let needsRepair = installer.needsRepair
+            let needsRepair = installer.needsRepair(installed: installed)
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token, !self.isChangingConnection else { return }
                 if needsRepair { self.connection = .repairRequired }
@@ -370,7 +414,7 @@ final class CodexStore: ObservableObject {
                 guard let self else { return }
                 self.isChangingConnection = false
                 if succeeded {
-                    let wasRunning = self.timer != nil
+                    let wasRunning = self.driver != nil
                     self.stop()
                     self.home = selected
                     self.monitor = CodexMonitor(home: selected, helperSource: self.helperSource)
@@ -398,7 +442,7 @@ final class CodexStore: ObservableObject {
                 guard let self else { return }
                 self.isChangingConnection = false
                 if succeeded {
-                    let wasRunning = self.timer != nil
+                    let wasRunning = self.driver != nil
                     self.stop()
                     self.defaults.removeObject(forKey: Self.bookmarkKey)
                     self.accessURL?.stopAccessingSecurityScopedResource()
@@ -415,15 +459,17 @@ final class CodexStore: ObservableObject {
     }
 
     private func apply(_ result: CodexMonitorSnapshot) {
-        usage = result.usage.snapshot
-        usageAvailability = result.usage.availability
-        agents = result.agents
-        approvals = result.approvals
-        lastHookAt = result.lastHookAt
-        connection = result.connection
-        indicator = CodexIndicator.resolve(agents: result.agents, approvals: result.approvals,
+        if usage != result.usage.snapshot { usage = result.usage.snapshot }
+        if usageAvailability != result.usage.availability { usageAvailability = result.usage.availability }
+        if agents != result.agents { agents = result.agents }
+        if approvals != result.approvals { approvals = result.approvals }
+        if lastHookAt != result.lastHookAt { lastHookAt = result.lastHookAt }
+        if connection != result.connection { connection = result.connection }
+        let nextIndicator = CodexIndicator.resolve(agents: result.agents, approvals: result.approvals,
                                            connection: result.connection)
-        compactAgents = CodexCompactAgent.make(agents: result.agents, approvals: result.approvals,
+        let nextCompactAgents = CodexCompactAgent.make(agents: result.agents, approvals: result.approvals,
                                               connection: result.connection)
+        if indicator != nextIndicator { indicator = nextIndicator }
+        if compactAgents != nextCompactAgents { compactAgents = nextCompactAgents }
     }
 }
