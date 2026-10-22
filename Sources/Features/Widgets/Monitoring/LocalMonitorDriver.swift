@@ -2,6 +2,61 @@ import CoreServices
 import Darwin
 import Foundation
 
+/// Retain a stopped reader briefly for quick show/hide cycles. A removed
+/// widget discards immediately; pressure only releases inactive caches.
+@MainActor
+final class MonitorCacheRetention {
+    private let delay: Duration
+    private let release: @MainActor () -> Void
+    private var expiry: Task<Void, Never>?
+    private var pressure: DispatchSourceMemoryPressure?
+    private var generation = 0
+
+    init(delay: Duration = .seconds(60), release: @escaping @MainActor () -> Void) {
+        self.delay = delay
+        self.release = release
+    }
+
+    func schedule() {
+        // Repeated hidden-widget updates must not extend the retention window.
+        guard expiry == nil else { return }
+        let token = generation
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == token else { return }
+                self.releaseNow()
+            }
+        }
+        pressure = source
+        source.resume()
+        let delay = delay
+        expiry = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard !Task.isCancelled, let self, self.generation == token else { return }
+            self.releaseNow()
+        }
+    }
+
+    func cancel() {
+        generation += 1
+        expiry?.cancel()
+        expiry = nil
+        pressure?.cancel()
+        pressure = nil
+    }
+
+    func releaseNow() {
+        cancel()
+        release()
+    }
+
+    deinit {
+        expiry?.cancel()
+        pressure?.cancel()
+    }
+}
+
 /// File notifications are hints. A bounded recovery scan handles dropped events,
 /// unavailable streams, sleep/wake and changes made while monitoring was stopped.
 struct MonitorChanges {

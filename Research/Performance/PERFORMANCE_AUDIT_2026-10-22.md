@@ -10,6 +10,8 @@
 > Bu belge ilk incelemenin bulgularını kaydeder. Sonraki kod değişiklikleri ve
 > doğrulama sonuçları [sürekli izleme düzeltmesi raporunda](CONTINUOUS_MONITORING_FIX_2026-10-22.md)
 > ayrıca tutulur; ilk ölçümler yeni sürümün ölçümü değildir.
+> P08/P09/P10 uygulaması ve toplu test için bekleyen kontroller
+> [kuyruk ve bellek düzenlemesi raporunda](SPOOL_AND_CACHE_CHANGES_2026-10-22.md) kayıtlıdır.
 
 ## 1. Genel değerlendirme
 

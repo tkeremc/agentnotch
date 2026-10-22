@@ -22,7 +22,10 @@ struct CodexUsageTests {
         ("Codex quota reports no data until first observation becomes eligible", futureOnly),
         ("Codex session reader recovers parent and child activity from current logs", lifecycle),
         ("Codex session reader keeps heartbeats and later turns separate", activityHeartbeat),
-        ("Codex session reader defers future lifecycle and rejects malformed evidence", activityUncertainty)
+        ("Codex session reader defers future lifecycle and rejects malformed evidence", activityUncertainty),
+        ("Codex block reader preserves UTF8 partial records across chunk and refresh boundaries", blockBoundaries),
+        ("Codex block reader accepts the exact line limit and discards oversized partial input", lineLimit),
+        ("Codex reader releases removed file and account indices without losing last quota", cachePruning)
     ]
 
     private static func lifecycle() throws {
@@ -282,6 +285,75 @@ struct CodexUsageTests {
             try expect(reader.refresh(now: fixtureNow).snapshot == nil, "oversized partial line ignored")
             try append(Data("\n{broken}\n".utf8) + quota(45), to: file)
             try expect(reader.refresh(now: fixtureNow).snapshot?.primary?.usedPercent == 45, "recover after long and malformed lines")
+        }
+    }
+
+    private static func blockBoundaries() throws {
+        try fixture { root, reader in
+            let file = root.appendingPathComponent("a.jsonl")
+            let metadata = try encoded("session_meta", ["id": "block-test", "creator_account_id": "a", "creator_user_id": "u"])
+                + encoded("event_msg", ["type": "task_started", "turn_id": "t"])
+            // Padding places a multibyte character across the 64 KiB read edge.
+            let start = Data("{\"noise\":\"".utf8)
+            let padding = 65_535 - metadata.count - start.count
+            var line = start + Data(repeating: 65, count: padding)
+            line.append(Data("ş\",\"payload\":{},\"type\":\"ignored\"}\n".utf8))
+            let quotaLine = try quota(37)
+            let split = quotaLine.count / 2
+            try (metadata + line + quotaLine.prefix(split)).write(to: file)
+            try expect(reader.refresh(now: fixtureNow).snapshot == nil, "incomplete quota is deferred")
+            let activityNow = ISO8601DateFormatter().date(from: "2026-10-20T00:00:10Z")!
+            try expect(reader.activitySnapshots(now: activityNow).first?.status == .working,
+                       "valid UTF8 spanning chunks does not invalidate lifecycle evidence")
+            try expect(reader.retainedStateCounts.pendingBytes == split, "only the partial tail is kept")
+            try append(Data(quotaLine.dropFirst(split)), to: file)
+            try expect(reader.refresh(now: fixtureNow).snapshot?.primary?.usedPercent == 37,
+                       "UTF8 split and multi-chunk record do not corrupt the following quota")
+            try expect(reader.retainedStateCounts.pendingBytes == 0, "completed tail releases scratch data")
+            try append(Data("\n\n".utf8) + quota(68, time: 3), to: file)
+            try expect(reader.refresh(now: fixtureNow).snapshot?.primary?.usedPercent == 68,
+                       "empty lines and multiple complete records in one chunk stay aligned")
+        }
+    }
+
+    private static func lineLimit() throws {
+        try fixture { root, reader in
+            let file = root.appendingPathComponent("a.jsonl")
+            let prefix = Data("{\"type\":\"event_msg\",\"timestamp\":\"2026-10-20T00:00:02Z\",\"payload\":{\"type\":\"token_count\",\"rate_limits\":{\"limit_id\":\"codex\",\"primary\":{\"used_percent\":44}}},\"padding\":\"".utf8)
+            let suffix = Data("\"}".utf8)
+            let exact = prefix + Data(repeating: 65, count: 1_048_576 - prefix.count - suffix.count) + suffix
+            // Exact limit without a newline is still a legitimate partial line.
+            try (meta() + exact).write(to: file)
+            _ = reader.refresh(now: fixtureNow)
+            try expect(reader.retainedStateCounts.pendingBytes == 1_048_576, "exact limit remains eligible")
+            try append(Data([10]), to: file)
+            try expect(reader.refresh(now: fixtureNow).snapshot?.primary?.usedPercent == 44, "limit-sized line completes")
+            try expect(reader.retainedStateCounts.pendingBytes == 0, "large completed scratch is released")
+            try append(Data(repeating: 65, count: 1_048_577), to: file)
+            _ = reader.refresh(now: fixtureNow)
+            try expect(reader.retainedStateCounts.pendingBytes == 0, "oversized unfinished line holds no large buffer")
+            try append(Data([10]) + quota(73, time: 3), to: file)
+            try expect(reader.refresh(now: fixtureNow).snapshot?.primary?.usedPercent == 73,
+                       "reader resumes at the next newline after oversized input")
+        }
+    }
+
+    private static func cachePruning() throws {
+        try fixture { root, reader in
+            for index in 0..<12 {
+                let file = root.appendingPathComponent("\(index).jsonl")
+                try (meta(account: "account-\(index)") + quota(index)).write(to: file)
+                _ = reader.refresh(now: fixtureNow)
+                try expect(reader.retainedStateCounts.files == 1 && reader.retainedStateCounts.fileKeys == 1,
+                           "only existing files retain state and opaque file indices")
+                try expect(reader.retainedStateCounts.identities == 1, "replaced accounts do not accumulate identity keys")
+                try FileManager.default.removeItem(at: file)
+            }
+            let last = reader.refresh(now: fixtureNow)
+            try expect(last.snapshot?.primary?.usedPercent == 11, "dated last observation survives source removal")
+            try expect(reader.retainedStateCounts.files == 0 && reader.retainedStateCounts.fileKeys == 0,
+                       "deleted source states are released")
+            try expect(reader.retainedStateCounts.identities == 1, "only the last observation identity is retained")
         }
     }
 

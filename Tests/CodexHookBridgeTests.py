@@ -12,10 +12,12 @@ import time
 import unittest
 import uuid
 
+from HookSpoolCases import HookSpoolCases
+
 HELPER = Path(sys.argv.pop(1)).resolve()
 
 
-class HookBridgeTests(unittest.TestCase):
+class HookBridgeTests(HookSpoolCases, unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="agentnotch-hook-fixture-")
         self.addCleanup(self.temp.cleanup)
@@ -107,6 +109,7 @@ class HookBridgeTests(unittest.TestCase):
             list(pool.map(lambda _: self.invoke(self.payload("UserPromptSubmit")), range(48)))
         files = list(self.spool.glob("*.json"))
         self.assertEqual(len(files), 48)
+        self.assertEqual(self.saved_checkpoint()["count"], 48)
         self.assertEqual(len({json.loads(path.read_text())["id"] for path in files}), 48)
         self.assertFalse(list(self.spool.glob("*.tmp")))
 
@@ -129,7 +132,7 @@ class HookBridgeTests(unittest.TestCase):
             (self.spool / f"{uuid.uuid4()}.json").write_text("{}")
         self.invoke(self.payload("Stop"))
         owned = [p for p in self.spool.glob("*.json") if p != foreign]
-        self.assertEqual(len(owned), 4096)
+        self.assertEqual(len(owned), 3073)
         self.assertFalse(stale.exists())
         self.assertEqual(foreign.read_text(), "keep")
 

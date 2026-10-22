@@ -110,6 +110,12 @@ final class CodexUsageReader {
     private static let chunkBytes = 64 * 1024
     private static let maximumLineBytes = 1024 * 1024
 
+    // Internal diagnostics used by the deferred regression suite. Byte count
+    // measures live partial input, not Foundation's allocator capacity or RSS.
+    var retainedStateCounts: (files: Int, fileKeys: Int, identities: Int, pendingBytes: Int) {
+        (states.count, fileKeys.count, identityKeys.count, states.values.reduce(0) { $0 + $1.pending.count })
+    }
+
     init(sessionsDirectory: URL) {
         root = sessionsDirectory.standardizedFileURL
         titles = CodexThreadTitleIndex(url: root.deletingLastPathComponent().appendingPathComponent("session_index.jsonl"))
@@ -202,7 +208,9 @@ final class CodexUsageReader {
         }
         cachedErrors = errors
         cachedCount = changedPaths == nil ? scanned : states.count
-        return project(now: now)
+        let value = project(now: now)
+        pruneIdentityKeys()
+        return value
     }
 
     /// Expiry and clock-skewed observations advance without enumerating/opening files.
@@ -316,29 +324,60 @@ final class CodexUsageReader {
                 let amount = min(Self.chunkBytes, Int(min(UInt64(Self.chunkBytes), size - state.offset)))
                 guard let chunk = try handle.read(upToCount: amount), !chunk.isEmpty else { break }
                 state.offset += UInt64(chunk.count)
-                for byte in chunk {
-                    if byte == 10 {
-                        if !state.droppingLongLine { consume(state.pending, state: &state, now: now) }
-                        state.pending.removeAll(keepingCapacity: true)
-                        state.droppingLongLine = false
-                        state.ordinal += 1
-                    } else if !state.droppingLongLine {
-                        if state.pending.count < Self.maximumLineBytes { state.pending.append(byte) }
-                        else {
-                            state.pending.removeAll(keepingCapacity: true)
-                            state.droppingLongLine = true
-                            state.malformedActivity = true
-                        }
-                    }
-                }
+                consumeChunk(chunk, state: &state, now: now)
             }
+            // An EOF with a complete line needs no per-file scratch capacity.
+            // Keep real partial input, including a line split across refreshes.
+            if state.pending.isEmpty { state.pending = Data() }
             states[url.path] = state
         } catch {
             // Completed observations remain usable even when a subsequent read
             // fails. Pending partial lines and offsets remain consistent.
+            if state.pending.isEmpty { state.pending = Data() }
             states[url.path] = state
             throw error
         }
+    }
+
+    private func consumeChunk(_ chunk: Data, state: inout FileState, now: Date) {
+        chunk.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            guard let base = bytes.baseAddress else { return }
+            var start = 0
+            while start < bytes.count {
+                let newline = memchr(base.advanced(by: start), 10, bytes.count - start)
+                let end = newline.map { base.distance(to: UnsafeRawPointer($0)) } ?? bytes.count
+                let length = end - start
+                if !state.droppingLongLine {
+                    if length > Self.maximumLineBytes - state.pending.count {
+                        state.pending = Data()
+                        state.droppingLongLine = true
+                        state.malformedActivity = true
+                    } else if state.pending.isEmpty, newline != nil {
+                        // The common case needs no growing scratch buffer.
+                        consume(Data(bytes: base.advanced(by: start), count: length), state: &state, now: now)
+                    } else {
+                        state.pending.append(base.advanced(by: start).assumingMemoryBound(to: UInt8.self), count: length)
+                        if newline != nil { consume(state.pending, state: &state, now: now) }
+                    }
+                }
+                guard newline != nil else { break }
+                // Reuse small scratch capacity inside this read only; release
+                // large completed/oversized lines instead of pinning 1 MiB.
+                if state.pending.count > Self.chunkBytes { state.pending = Data() }
+                else { state.pending.removeAll(keepingCapacity: true) }
+                state.droppingLongLine = false
+                state.ordinal += 1
+                start = end + 1
+            }
+        }
+    }
+
+    private func pruneIdentityKeys() {
+        var live = Set(states.values.compactMap(\.accountIdentity))
+        // Preserve the opaque identity of the explicitly retained last quota
+        // even if its source log was deleted. Other removed accounts can go.
+        if let group = lastKnownGroup, identityKeys[group] != nil { live.insert(group) }
+        identityKeys = identityKeys.filter { live.contains($0.key) }
     }
 
     private func consume(_ line: Data, state: inout FileState, now: Date) {

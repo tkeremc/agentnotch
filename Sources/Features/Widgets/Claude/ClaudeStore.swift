@@ -227,7 +227,12 @@ final class ClaudeStore: ObservableObject {
     private let defaults: UserDefaults
     private let helperSource: URL?
     private let queue = DispatchQueue(label: "com.agentnotch.claude", qos: .utility)
-    private var monitor: ClaudeMonitor
+    private var monitor: ClaudeMonitor?
+    var hasCachedMonitor: Bool { monitor != nil }
+    private lazy var cacheRetention = MonitorCacheRetention { [weak self] in
+        guard let self, self.driver == nil else { return }
+        self.discardCachedMonitor()
+    }
     private var driver: LocalMonitorDriver?
     private var generation = 0
     private var accessURL: URL?
@@ -253,7 +258,6 @@ final class ClaudeStore: ObservableObject {
             }
         }
         home = resolvedHome
-        monitor = ClaudeMonitor(home: resolvedHome, helperSource: helperSource)
     }
 
     deinit {
@@ -262,10 +266,12 @@ final class ClaudeStore: ObservableObject {
     }
 
     func start() {
+        cacheRetention.cancel()
         guard driver == nil else { return }
         generation += 1
         let token = generation
-        let monitor = monitor
+        let monitor = monitor ?? ClaudeMonitor(home: home, helperSource: helperSource)
+        self.monitor = monitor
         let source = LocalMonitorDriver(home: home, observed: monitor.observationRoots, queue: queue,
             recursiveDirectories: [home.appendingPathComponent("sessions"), home.appendingPathComponent("agentnotch/events")],
             watchPaths: { monitor.observationPaths }) { [weak self] changes in
@@ -279,20 +285,34 @@ final class ClaudeStore: ObservableObject {
         source.start()
     }
 
-    func stop() {
+    func stop(releaseCaches: Bool = true) {
         generation += 1
         driver?.stop()
         driver = nil
         approvals = []
         indicator = .none
         compactAgents = []
+        if releaseCaches {
+            cacheRetention.cancel()
+            discardCachedMonitor()
+        } else if monitor != nil {
+            cacheRetention.schedule()
+        }
+    }
+
+    private func discardCachedMonitor() {
+        monitor = nil
+        agents = []
+        usage = nil
+        usageAvailability = .noData
+        lastHookAt = nil
+        if connection == .receiving { connection = .waitingForEvents }
     }
 
     func retry() {
         let wasRunning = driver != nil
         stop()
-        // A fresh monitor also retries previously unreadable/replaced events.
-        monitor = ClaudeMonitor(home: home, helperSource: helperSource)
+        // The next start rebuilds unreadable/replaced event state.
         if wasRunning { start() }
     }
 
@@ -368,7 +388,6 @@ final class ClaudeStore: ObservableObject {
                     let wasRunning = self.driver != nil
                     self.stop()
                     self.home = selected
-                    self.monitor = ClaudeMonitor(home: selected, helperSource: self.helperSource)
                     self.connection = .waitingForEvents
                     if wasRunning { self.start() }
                 } else {
@@ -399,7 +418,6 @@ final class ClaudeStore: ObservableObject {
                     self.accessURL?.stopAccessingSecurityScopedResource()
                     self.accessURL = nil
                     self.home = ClaudeLocations.configuredHome()
-                    self.monitor = ClaudeMonitor(home: self.home, helperSource: self.helperSource)
                     self.agents = []
                     self.connection = .notInstalled
                     self.lastHookAt = nil

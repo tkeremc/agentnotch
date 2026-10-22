@@ -10,7 +10,8 @@ for architecture in ${ARCHS:-arm64 x86_64}; do
     architecture_binary="$codex_intermediates/agentnotch-codex-hook-$architecture"
     /usr/bin/xcrun swiftc -O -target "$architecture-apple-macosx14.0" \
         -module-cache-path "$codex_intermediates/module-cache" \
-        "$source_root/Native/CodexHookBridge.swift" -o "$architecture_binary"
+        "$source_root/Native/CodexHookBridge.swift" \
+        "$source_root/Native/HookSpool.swift" -o "$architecture_binary"
     set -- "$@" "$architecture_binary"
 done
 /usr/bin/xcrun lipo -create "$@" -output "$codex_output/agentnotch-codex-hook"

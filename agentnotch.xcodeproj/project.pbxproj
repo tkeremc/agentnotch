@@ -4,6 +4,7 @@
     classes = {};
     objectVersion = 56;
     objects = {
+        D10000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HookSpool.swift"; sourceTree = "<group>"; };
         D10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "LocalMonitorDriver.swift"; sourceTree = "<group>"; };
         D20000000000000000000001 = {isa = PBXBuildFile; fileRef = D10000000000000000000001; };
         D30000000000000000000001 = {isa = PBXGroup; children = (D10000000000000000000001); path = "Monitoring"; sourceTree = "<group>"; };
@@ -22,7 +23,7 @@
         74CCB8508C639BA62AF3EB5A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeStoreTests.swift"; sourceTree = "<group>"; };
         C1AC72F36ED7362D0AB12BA5 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookInstallerTests.swift"; sourceTree = "<group>"; };
         B4E2D714820FE717DE31597D = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "ClaudeHookBridgeTests.py"; sourceTree = "<group>"; };
-        462B7574509334CF980DBCCA = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = ("$(AGENTNOTCH_SOURCE_ROOT)/Native/build-claude-bridge.sh", "$(AGENTNOTCH_SOURCE_ROOT)/Native/ClaudeHookBridge.swift"); name = "Build Claude Hook Bridge"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Claude/agentnotch-claude-hook"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/bin/sh \"$AGENTNOTCH_SOURCE_ROOT/Native/build-claude-bridge.sh\"\n"; };
+        462B7574509334CF980DBCCA = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = ("$(AGENTNOTCH_SOURCE_ROOT)/Native/build-claude-bridge.sh", "$(AGENTNOTCH_SOURCE_ROOT)/Native/ClaudeHookBridge.swift", "$(AGENTNOTCH_SOURCE_ROOT)/Native/HookSpool.swift"); name = "Build Claude Hook Bridge"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Claude/agentnotch-claude-hook"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/bin/sh \"$AGENTNOTCH_SOURCE_ROOT/Native/build-claude-bridge.sh\"\n"; };
         75F9D027B8DF6DB69F36DF1F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexStoreTests.swift"; sourceTree = "<group>"; };
         55A1BEF8085227408B26AE4A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexActivity.swift"; sourceTree = "<group>"; };
         B5D1A7EF8A41E771DC28CB64 = {isa = PBXBuildFile; fileRef = 55A1BEF8085227408B26AE4A; };
@@ -40,7 +41,7 @@
         6E8747F7A1838116C962DE25 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexHookBridge.swift"; sourceTree = "<group>"; };
         A284AACB36B15F31925C86D9 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "build-codex-bridge.sh"; sourceTree = "<group>"; };
         E2F3323B9231861F18F9F5E8 = {isa = PBXGroup; children = (55A1BEF8085227408B26AE4A, 5FB0BDCFD3A915DDC3EDD502, 9459B61835EF3CB69F5094B2, 1F7F6BCEAFF4E2C60B49B9D1, 2610A659E1583854B9375AAF); path = "Codex"; sourceTree = "<group>"; };
-        E1A40030465FD019E3AC33E2 = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = ("$(AGENTNOTCH_SOURCE_ROOT)/Native/build-codex-bridge.sh", "$(AGENTNOTCH_SOURCE_ROOT)/Native/CodexHookBridge.swift"); name = "Build Codex Hook Bridge"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Codex/agentnotch-codex-hook"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/bin/sh \"$AGENTNOTCH_SOURCE_ROOT/Native/build-codex-bridge.sh\"\n"; };
+        E1A40030465FD019E3AC33E2 = {isa = PBXShellScriptBuildPhase; buildActionMask = 2147483647; files = (); inputPaths = ("$(AGENTNOTCH_SOURCE_ROOT)/Native/build-codex-bridge.sh", "$(AGENTNOTCH_SOURCE_ROOT)/Native/CodexHookBridge.swift", "$(AGENTNOTCH_SOURCE_ROOT)/Native/HookSpool.swift"); name = "Build Codex Hook Bridge"; outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Codex/agentnotch-codex-hook"); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "/bin/sh \"$AGENTNOTCH_SOURCE_ROOT/Native/build-codex-bridge.sh\"\n"; };
         C1000000000000000000000A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CompactMediaVisibility.swift"; sourceTree = "<group>"; };
         C2000000000000000000000A = {isa = PBXBuildFile; fileRef = C1000000000000000000000A; };
         C10000000000000000000009 = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "NowPlayingBridgeTests.m"; sourceTree = "<group>"; };
@@ -48,7 +49,7 @@
         C10000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "build-media-bridge.sh"; sourceTree = "<group>"; };
         C10000000000000000000007 = {isa = PBXFileReference; lastKnownFileType = text.script.perl; path = "now-playing-bridge.pl"; sourceTree = "<group>"; };
         C10000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "NowPlayingTests.swift"; sourceTree = "<group>"; };
-        C30000000000000000000002 = {isa = PBXGroup; children = (78F19E0AC3B0D326CC021448, F541F7640A27006CFE138CF9, 6E8747F7A1838116C962DE25, A284AACB36B15F31925C86D9, C10000000000000000000005, C10000000000000000000006); path = "Native"; sourceTree = "<group>"; };
+        C30000000000000000000002 = {isa = PBXGroup; children = (D10000000000000000000002, 78F19E0AC3B0D326CC021448, F541F7640A27006CFE138CF9, 6E8747F7A1838116C962DE25, A284AACB36B15F31925C86D9, C10000000000000000000005, C10000000000000000000006); path = "Native"; sourceTree = "<group>"; };
         C30000000000000000000003 = {isa = PBXGroup; children = (C10000000000000000000007); path = "Media"; sourceTree = "<group>"; };
         C10000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MediaArtworkView.swift"; sourceTree = "<group>"; };
         C20000000000000000000001 = {isa = PBXBuildFile; fileRef = C10000000000000000000001; };

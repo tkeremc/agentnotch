@@ -54,32 +54,6 @@ private func input() -> Data? {
     return nil
 }
 
-private func prune(_ directoryFD: Int32) -> Bool {
-    guard let stream = fdopendir(dup(directoryFD)) else { return false }
-    defer { closedir(stream) }
-    let oldest = Date().addingTimeInterval(-7 * 24 * 3600).timeIntervalSince1970
-    var retained = [(String, Double)]()
-    while let entry = readdir(stream) {
-        guard ProcessInfo.processInfo.systemUptime < executionDeadline else { return false }
-        let name = withUnsafePointer(to: &entry.pointee.d_name) {
-            $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXNAMLEN) + 1) { String(cString: $0) }
-        }
-        guard name.hasSuffix(".json"), UUID(uuidString: String(name.dropLast(5))) != nil else { continue }
-        var attributes = stat()
-        guard fstatat(directoryFD, name, &attributes, AT_SYMLINK_NOFOLLOW) == 0,
-              attributes.st_mode & S_IFMT == S_IFREG, attributes.st_uid == getuid() else { continue }
-        let modified = Double(attributes.st_mtimespec.tv_sec)
-        if modified < oldest { unlinkat(directoryFD, name, 0); continue }
-        // Bounded retained metadata even if an older build left a huge spool.
-        if retained.count < 4096 { retained.append((name, modified)) }
-        else { unlinkat(directoryFD, name, 0) }
-    }
-    if retained.count >= 4096,
-       let oldestEntry = retained.min(by: { $0.1 < $1.1 }) {
-        unlinkat(directoryFD, oldestEntry.0, 0)
-    }
-    return true
-}
 
 private func number(_ value: Any?, percentage: Bool = false) -> Double? {
     guard let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID() else { return nil }
@@ -111,13 +85,6 @@ private func emit(_ data: Data, statusLine: Bool, eventsPath: String) {
     guard fstat(directoryFD, &openedInfo) == 0, openedInfo.st_uid == getuid(),
           openedInfo.st_mode & 0o077 == 0,
           openedInfo.st_ino == info.st_ino, openedInfo.st_dev == info.st_dev else { return }
-    let lockDeadline = min(executionDeadline, ProcessInfo.processInfo.systemUptime + 0.5)
-    while flock(directoryFD, LOCK_EX | LOCK_NB) != 0 {
-        guard ProcessInfo.processInfo.systemUptime < lockDeadline else { return }
-        usleep(1_000)
-    }
-    defer { flock(directoryFD, LOCK_UN) }
-    guard prune(directoryFD) else { return }
     let id = UUID().uuidString
     let cwd = (object["cwd"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent }
     let tool = text(object["tool_name"], limit: 128)
@@ -143,21 +110,7 @@ private func emit(_ data: Data, statusLine: Bool, eventsPath: String) {
         sevenDayResetsAt: number(seven?["resets_at"]), model: text(model?["display_name"], limit: 80),
         contextUsedPercent: number(context?["used_percentage"], percentage: true))
     guard let encoded = try? JSONEncoder().encode(event) else { return }
-    let temporary = ".\(id).tmp"
-    let file = openat(directoryFD, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-    guard file >= 0 else { return }
-    var succeeded = true
-    encoded.withUnsafeBytes { bytes in
-        var offset = 0
-        while offset < bytes.count {
-            let count = write(file, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
-            if count <= 0 { succeeded = false; break }
-            offset += count
-        }
-    }
-    if close(file) != 0 { succeeded = false }
-    if succeeded { succeeded = renameat(directoryFD, temporary, directoryFD, "\(id).json") == 0 }
-    if !succeeded { unlinkat(directoryFD, temporary, 0) }
+    HookSpool.append(encoded, id: id, directoryFD: directoryFD, deadline: executionDeadline)
 }
 
 
@@ -262,7 +215,7 @@ private func forwardStatusLine(_ data: Data, eventsPath: String) {
     if !exited { waitpid(processID, nil, 0) }
 }
 
-private func main() {
+private func run() {
     let arguments = CommandLine.arguments
     guard [3, 4].contains(arguments.count), arguments[1] == "--events-dir", arguments[2].hasPrefix("/"),
           arguments.count == 3 || arguments[3] == "--statusline", let data = input() else { return }
@@ -270,5 +223,11 @@ private func main() {
     emit(data, statusLine: statusLine, eventsPath: arguments[2])
     if statusLine { forwardStatusLine(data, eventsPath: arguments[2]) }
 }
-main()
-exit(0)
+@main
+private enum ClaudeHookMain {
+    static func main() {
+        _ = executionDeadline
+        run()
+        exit(0)
+    }
+}

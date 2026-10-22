@@ -209,7 +209,7 @@ This mode performs no real Claude installation.
 ## Sürekli izleme performans regresyonları
 
 `AGENTNOTCH_TEST_SCOPE=codex bash Tests/run.sh`, Codex ve Claude kontrollerine
-12 izleme regresyonunu da ekler. Değişikliksiz turlardaki sıfır ilave tarama ve
+izleme ve önbellek yaşam döngüsü regresyonlarını da ekler. Değişikliksiz turlardaki sıfır ilave tarama ve
 hash doğrulaması; hedefli dosya okuma, yeni klasör, atomik değişim, descriptor
 bütçesi sonrası metadata fallback, gelecek tarihli olaylar ve süreç liveness
 koruması gerçek üretim tipleriyle denetlenir.
@@ -217,3 +217,15 @@ koruması gerçek üretim tipleriyle denetlenir.
 Sentetik eski/yeni CPU karşılaştırması ve dar izinli sandbox probe komutları:
 [izleme düzeltmesi doğrulama raporu](../Research/Performance/CONTINUOUS_MONITORING_FIX_2026-10-22.md).
 Bu benchmark bütün uygulamanın CPU, bellek veya pil ölçümü değildir.
+
+22 Ekim kuyruk/bellek değişikliği ayrıca blok/UTF8 sınırlarını, tam 1 MiB ve
+taşan satırları, silinen dosya/hesap indekslerini, widget kaldırma ve yeniden
+eklemeyi, süreli önbellek bırakmayı kapsayan altı Swift senaryosu ekler.
+`HookSpoolCases.py` içindeki beş ortak senaryo her iki native helper için
+çalışır: süreçler arası checkpoint, yaş/saat geri alınması, dışarıdan değişim ve
+bozuk checkpoint, güvensiz checkpoint dosyaları, kapasite ve en yeni kayıtları
+koruyan toplu temizlik. Mevcut paralel yazıcı senaryoları checkpoint sayacını da
+kontrol eder. Kullanıcının isteğiyle bu eklemeler henüz çalıştırılmadı;
+derleme, tüm testler ve ölçümler toplu doğrulama aşamasındadır.
+
+Ayrıntılar: [kuyruk ve bellek düzenlemesi](../Research/Performance/SPOOL_AND_CACHE_CHANGES_2026-10-22.md).

@@ -104,7 +104,8 @@ program ve diğer hook’lar korunur. Yeniden ekleme aynı tanımları
 çoğaltmaz. Değişen hook tanımları Codex’te tekrar güven onayı gerektirebilir.
 İlk açılış sihirbazı henüz eklenmedi; aynı kurulum/kaldırma katmanı hazırdır.
 
-Ortak yardımcı Xcode tarafından `Native/CodexHookBridge.swift` kaynağından
+Yardımcı Xcode tarafından `Native/CodexHookBridge.swift` ve ortak kuyruk
+uygulaması `Native/HookSpool.swift` kaynaklarından
 derlenip paketlenir. Prompt, komut, tool çıktısı veya kimlik bilgisi kaydetmez;
 yalnız sınırlı olay metadata’sını özel yerel kuyruğa yazar. Kota ve görev yaşam
 döngüsü için `sessions` kayıtları, sohbet adı için `session_index.jsonl` okunur. Alt ajan hook kimliği gerektiğinde

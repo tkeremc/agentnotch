@@ -15,7 +15,10 @@ enum MonitorPerformanceTests {
         ("Metadata fallback delivers changes beyond the native descriptor budget", fallbackDelivery),
         ("Codex discovers new nested sessions and their atomic replacement", newSessions),
         ("Future hook events become eligible without another filesystem event", futureHook),
-        ("Periodic recovery finds writes without a notification hint", recovery)
+        ("Periodic recovery finds writes without a notification hint", recovery),
+        ("Codex removed widget releases cached state and rebuilds from disk", codexCacheLifecycle),
+        ("Claude removed widget releases cached state and rebuilds from disk", claudeCacheLifecycle),
+        ("Inactive cache retention expires, cancels and responds to pressure", cacheRetention)
     ]
     private struct Failure: Error { let message: String }
     private static func expect(_ value: @autoclosure () -> Bool, _ message: String) throws {
@@ -292,5 +295,81 @@ enum MonitorPerformanceTests {
                        "deferred permission must be retried when eligible")
             try expect(monitor.validationCount == 1, "retrying an event does not revalidate configuration")
         }
+    }
+
+    private static func codexCacheLifecycle() throws {
+        try fixture { home in
+            let now = Date().addingTimeInterval(-1)
+            let file = home.appendingPathComponent("sessions/a.jsonl")
+            try (session("original", at: now)
+                + record("event_msg", ["type": "task_started", "turn_id": "first"], at: now)
+                + quota(28, at: now)).write(to: file)
+            let store = CodexStore(codexHome: home)
+            try expect(!store.hasCachedMonitor, "unused widget allocates no reader")
+            store.start()
+            defer { store.stop() }
+            try waitUntil { store.usage?.primary?.usedPercent == 28 }
+            store.stop(releaseCaches: false)
+            try expect(store.hasCachedMonitor && store.usage != nil, "brief hiding retains a warm reader")
+            store.start()
+            try waitUntil { store.agents.contains { $0.id == "original" } }
+            store.stop()
+            try expect(!store.hasCachedMonitor && store.agents.isEmpty && store.usage == nil,
+                       "widget removal drops reader and presentation snapshots")
+            try expect(store.lastHookAt == nil && store.approvals.isEmpty && store.compactAgents.isEmpty,
+                       "stopped widget keeps no stale hook or approval presentation")
+            try (session("replacement", at: now)
+                + record("event_msg", ["type": "task_started", "turn_id": "next"], at: now)
+                + quota(61, at: now)).write(to: file, options: .atomic)
+            store.start()
+            try waitUntil { store.usage?.primary?.usedPercent == 61 && store.agents.contains { $0.id == "replacement" } }
+            try expect(!store.agents.contains { $0.id == "original" }, "fresh reader does not revive discarded state")
+        }
+    }
+
+    private static func claudeCacheLifecycle() throws {
+        try fixture { home in
+            let binary = try helper("CLAUDE")
+            let installer = ClaudeHookInstaller(claudeHome: home, helperSource: binary)
+            try installer.install()
+            let now = Date().addingTimeInterval(-1)
+            let event = ClaudeHookEvent(kind: .statusLine, timestamp: now, sessionID: "original", project: "fixture",
+                fiveHourUsedPercent: 28, fiveHourResetsAt: Date().addingTimeInterval(3600).timeIntervalSince1970)
+            let file = installer.eventsDirectory.appendingPathComponent("\(event.id).json")
+            try JSONEncoder().encode(event).write(to: file)
+            let store = ClaudeStore(claudeHome: home, helperSource: binary)
+            try expect(!store.hasCachedMonitor, "unused widget allocates no reader")
+            store.start()
+            defer { store.stop() }
+            try waitUntil { store.usage?.primary?.usedPercent == 28 }
+            store.stop(releaseCaches: false)
+            try expect(store.hasCachedMonitor && store.usage != nil, "brief hiding retains the quota cache")
+            store.stop()
+            try expect(!store.hasCachedMonitor && store.agents.isEmpty && store.usage == nil && store.lastHookAt == nil,
+                       "removal releases runtime, quota and event-reader ownership")
+            try expect(store.usageAvailability == .noData && store.connection != .receiving, "discarded cache is not advertised as current")
+            try FileManager.default.removeItem(at: file)
+            let replacement = ClaudeHookEvent(kind: .statusLine, timestamp: now, sessionID: "replacement", project: "fixture",
+                fiveHourUsedPercent: 61, fiveHourResetsAt: Date().addingTimeInterval(3600).timeIntervalSince1970)
+            try JSONEncoder().encode(replacement).write(to: installer.eventsDirectory.appendingPathComponent("\(replacement.id).json"))
+            store.start()
+            try waitUntil { store.usage?.primary?.usedPercent == 61 }
+        }
+    }
+
+    private static func cacheRetention() throws {
+        var releases = 0
+        let retention = MonitorCacheRetention(delay: .milliseconds(100)) { releases += 1 }
+        retention.schedule()
+        retention.cancel()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try expect(releases == 0, "a resumed reader cancels its old expiry")
+        retention.schedule()
+        try waitUntil { releases == 1 }
+        retention.schedule()
+        retention.releaseNow() // Same entry point used by the pressure source.
+        try expect(releases == 2, "pressure discards an inactive reader immediately")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        try expect(releases == 2, "pressure also cancels the scheduled expiry")
     }
 }

@@ -13,10 +13,12 @@ import time
 import unittest
 import uuid
 
+from HookSpoolCases import HookSpoolCases
+
 HELPER = Path(sys.argv.pop(1)).resolve()
 
 
-class ClaudeHookBridgeTests(unittest.TestCase):
+class ClaudeHookBridgeTests(HookSpoolCases, unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="agentnotch-claude-fixture-")
         self.addCleanup(self.temp.cleanup)
@@ -187,6 +189,7 @@ class ClaudeHookBridgeTests(unittest.TestCase):
         with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
             list(pool.map(lambda _: self.invoke(self.payload("UserPromptSubmit")), range(48)))
         self.assertEqual(len(list(self.spool.glob("*.json"))), 48)
+        self.assertEqual(self.saved_checkpoint()["count"], 48)
         self.assertFalse(list(self.spool.glob("*.tmp")))
         for path in self.spool.iterdir():
             path.unlink()
@@ -207,7 +210,7 @@ class ClaudeHookBridgeTests(unittest.TestCase):
         for _ in range(4096):
             (self.spool / f"{uuid.uuid4()}.json").write_text("{}")
         self.invoke(self.payload("Stop"))
-        self.assertEqual(len(list(self.spool.glob("*.json"))), 4097)
+        self.assertEqual(len(list(self.spool.glob("*.json"))), 3074)
         self.assertFalse(stale.exists())
         self.assertEqual(foreign.read_text(), "keep")
 

@@ -196,8 +196,8 @@ final class IslandController: NSObject {
         mediaMonitoringEnabled = false
         compactMedia.update(isPlaying: nil)
         media.stop()
-        codex.stop()
-        claude.stop()
+        codex.stop(releaseCaches: !settings.widgets.contains(.codex))
+        claude.stop(releaseCaches: !settings.widgets.contains(.claude))
         state.hasCodexAlert = false
         state.codexAlertProgress = 0
         state.codexSlotsProgress = 0
@@ -461,9 +461,9 @@ final class IslandController: NSObject {
 
     private func updateCodexMonitoring(widgets: [WidgetKind]) {
         if panel.isVisible && widgets.contains(.codex) { codex.start() }
-        else { codex.stop() }
+        else { codex.stop(releaseCaches: !widgets.contains(.codex)) }
         if panel.isVisible && widgets.contains(.claude) { claude.start() }
-        else { claude.stop() }
+        else { claude.stop(releaseCaches: !widgets.contains(.claude)) }
     }
 
     private func setCodexAlertAvailable(_ available: Bool) {
