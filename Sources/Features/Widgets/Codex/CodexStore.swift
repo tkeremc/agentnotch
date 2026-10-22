@@ -39,10 +39,18 @@ enum CodexIndicator: Equatable {
 }
 
 struct CodexCompactAgent: Identifiable, Equatable {
+    enum Role: Equatable {
+        case main, subagent
+
+        var title: L10nKey { self == .main ? .agentMain : .codexSubagent }
+    }
+
     let id: String
     let name: String
     let indicator: CodexIndicator
     var iconName = "GPTMark"
+    // Provider-level connection/error alerts have no agent role.
+    var role: Role? = nil
 
     static func make(agents: [CodexAgentSnapshot], approvals: [CodexApprovalSnapshot],
                      connection: CodexConnection, now: Date = .now) -> [Self] {
@@ -59,7 +67,8 @@ struct CodexCompactAgent: Identifiable, Equatable {
                 } else { status = agent.hasIssue ? .failed : .working }
                 let label = agent.conversationTitle != nil || agent.name != nil
                     ? "\(agent.displayTitle) · \(agent.displaySubtitle)" : agent.project
-                return Self(id: agent.id, name: label, indicator: status)
+                return Self(id: agent.id, name: label, indicator: status,
+                            role: agent.isSubagent ? .subagent : .main)
             }
         }
         let status = CodexIndicator.resolve(agents: agents, approvals: approvals, connection: connection, now: now)

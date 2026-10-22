@@ -9,6 +9,7 @@ enum CodexStoreTests {
         ("Codex automatic connection writes only after consent", consent),
         ("Codex packaged helper feeds the store without touching real Codex", integration),
         ("Codex permission wing preserves notch geometry beside media", geometry),
+        ("compact agents preserve hierarchy independently of status", compactRoles),
         ("Codex current sessions remain visible before hook repair", readOnlyActivity),
         ("Codex spool pruning does not report a connection failure", spoolPruning),
         ("Codex read failures preserve other events and retry unread files", spoolReadFailure),
@@ -299,6 +300,32 @@ enum CodexStoreTests {
             let oversizedData = try CodexMonitor.readEventData(file)
             try expect(oversizedData == nil, "oversized events must not be loaded")
         }
+    }
+
+    private static func compactRoles() throws {
+        let now = Date()
+        // Deliberately put the child first and omit its display name: parent
+        // linkage, rather than presentation text or ordering, defines its role.
+        let child = CodexAgentSnapshot(id: "a-child", project: "fixture", name: nil,
+            status: .working, updatedAt: now, parentID: "z-main")
+        let main = CodexAgentSnapshot(id: "z-main", project: "fixture", name: nil,
+            status: .working, updatedAt: now, conversationTitle: "A named conversation")
+        let approval = CodexApprovalSnapshot(id: "permission", sessionID: "z-main", turnID: nil,
+            project: "fixture", summary: nil, toolName: "Bash", requestedAt: now, agentID: "a-child")
+        let agents = CodexCompactAgent.make(agents: [child, main], approvals: [approval],
+            connection: .receiving, now: now)
+        try expect(agents.map(\.id) == ["z-main", "a-child"], "main agent stays ahead of its child")
+        try expect(agents.map(\.role) == [.main, .subagent], "named main and unnamed child retain correct roles")
+        try expect(agents.map(\.indicator) == [.working, .approval], "permission badge does not replace hierarchy")
+
+        var failedChild = child
+        failedChild.hasIssue = true
+        let failed = CodexCompactAgent.make(agents: [failedChild], approvals: [], connection: .receiving, now: now)
+        try expect(failed.first?.role == .subagent && failed.first?.indicator == .failed,
+                   "a child tool failure keeps its hierarchy")
+        let repair = CodexCompactAgent.make(agents: [], approvals: [], connection: .repairRequired, now: now)
+        try expect(repair.first?.role == nil && repair.first?.indicator == .connectionIssue,
+                   "provider repair must not claim to be a main agent")
     }
 
     private static func geometry() throws {

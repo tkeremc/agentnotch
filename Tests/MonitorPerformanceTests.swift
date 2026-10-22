@@ -179,7 +179,9 @@ enum MonitorPerformanceTests {
     }
     private static func runtimeLiveness() throws {
         try fixture { home in
-            let now = Date()
+            // Exact seconds avoid JSON millisecond round-trips placing the
+            // fixture fractionally in the future, before liveness is checked.
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
             let file = home.appendingPathComponent("sessions/123.json")
             try JSONSerialization.data(withJSONObject: ["pid": 123, "pidDomain": "darwin", "procStart": "start",
                 "sessionId": "s", "statusUpdatedAt": now.timeIntervalSince1970 * 1000, "status": "busy"])

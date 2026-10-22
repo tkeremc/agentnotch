@@ -441,7 +441,7 @@ final class ClaudeStore: ObservableObject {
                                               connection: result.connection).map {
             CodexCompactAgent(id: $0.id == "codex-status" ? "claude-status" : $0.id,
                               name: $0.name == "Codex" ? "Claude" : $0.name,
-                              indicator: $0.indicator, iconName: "ClaudeMark")
+                              indicator: $0.indicator, iconName: "ClaudeMark", role: $0.role)
         }
         if indicator != nextIndicator { indicator = nextIndicator }
         if compactAgents != nextCompactAgents { compactAgents = nextCompactAgents }

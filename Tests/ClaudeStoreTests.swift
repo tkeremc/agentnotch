@@ -8,6 +8,7 @@ enum ClaudeStoreTests {
         ("Claude discovers real and configured homes without symlinks", discovery),
         ("Claude connection installation requires explicit consent", consent),
         ("Claude spool safely reads lifecycle and official quota events", monitor),
+        ("Claude compact agents retain provider and hierarchy through store updates", compactRoles),
         ("Claude spool rejects links and oversized files", safety),
         ("Claude runtime metadata requires a matching live process and transition time", runtime),
         ("Claude newer runtime state reconciles denied permissions", projection),
@@ -84,6 +85,30 @@ enum ClaudeStoreTests {
             try expect(expired.connection == .waitingForEvents, "silence does not indicate connection failure")
         }
     }
+    private static func compactRoles() throws {
+        try fixture { home in
+            let source = try helper()
+            try ClaudeHookInstaller(claudeHome: home, helperSource: source).install()
+            let now = Date().addingTimeInterval(-3)
+            try spool(ClaudeHookEvent(kind: .userPromptSubmit, timestamp: now,
+                sessionID: "main", project: "fixture"), home: home)
+            try spool(ClaudeHookEvent(kind: .subagentStart, timestamp: now.addingTimeInterval(1),
+                sessionID: "main", agentID: "child", project: "fixture", agentType: "Reviewer"), home: home)
+            try spool(ClaudeHookEvent(kind: .permissionRequest, timestamp: now.addingTimeInterval(2),
+                sessionID: "main", agentID: "child", project: "fixture", toolName: "Bash"), home: home)
+            let store = ClaudeStore(claudeHome: home, helperSource: source)
+            store.start()
+            defer { store.stop() }
+            try waitUntil { store.compactAgents.count == 2 }
+            try expect(store.compactAgents.map(\.role) == [.main, .subagent],
+                       "Claude branding preserves main/child roles")
+            try expect(store.compactAgents.allSatisfy { $0.iconName == "ClaudeMark" },
+                       "both roles retain Claude identity")
+            try expect(store.compactAgents.map(\.indicator) == [.working, .approval],
+                       "only the child receives the permission badge")
+        }
+    }
+
     private static func safety() throws {
         try fixture { home in
             let target = home.appendingPathComponent("event.json")

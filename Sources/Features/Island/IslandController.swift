@@ -149,10 +149,10 @@ final class IslandController: NSObject {
             guard let self else { return }
             let agents = codexAgents.map { value in
                 CodexCompactAgent(id: "codex:" + value.id, name: value.name,
-                                  indicator: value.indicator, iconName: value.iconName)
+                                  indicator: value.indicator, iconName: value.iconName, role: value.role)
             } + claudeAgents.map { value in
                 CodexCompactAgent(id: "claude:" + value.id, name: value.name,
-                                  indicator: value.indicator, iconName: "ClaudeMark")
+                                  indicator: value.indicator, iconName: "ClaudeMark", role: value.role)
             }
             let previousCount = self.state.codexCompactAgents.count
             self.state.codexCompactAgents = agents

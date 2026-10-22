@@ -146,8 +146,13 @@ struct IslandView: View {
             ForEach(state.codexCompactAgents) { agent in
                 let statusTitle = settings.localization.text(agent.iconName == "ClaudeMark" && agent.indicator == .connectionIssue
                     ? .claudeRepairHint : agent.indicator.title)
+                let provider = agent.iconName == "ClaudeMark" ? "Claude" : "Codex"
+                let identity = agent.role.map { "\(provider) · \(settings.localization.text($0.title))" } ?? provider
+                let description = agent.name == provider ? "\(identity) · \(statusTitle)"
+                    : "\(identity) · \(agent.name) · \(statusTitle)"
                 Button { state.openCodex?() } label: {
-                    CompactAgentMark(iconName: agent.iconName, foreground: settings.foregroundColor,
+                    CompactAgentMark(iconName: agent.iconName, isSubagent: agent.role == .subagent,
+                        foreground: settings.foregroundColor,
                         background: settings.backgroundColor, statusSymbol: agent.indicator.symbol,
                         statusColor: agent.indicator == .working ? .green
                             : agent.indicator == .failed ? .red : .orange,
@@ -157,8 +162,8 @@ struct IslandView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("\(agent.name) · \(statusTitle)")
-                .accessibilityLabel("\(agent.name) · \(statusTitle)")
+                .help(description)
+                .accessibilityLabel(description)
             }
         }
         .frame(width: state.codexWingWidth, alignment: .leading)
@@ -189,10 +194,10 @@ struct IslandView: View {
 }
 
 
-/// Agent branding stays fixed while its small status badge changes independently.
-/// Other providers can supply their own asset without duplicating the layout.
-private struct CompactAgentMark: View {
+/// Shape communicates hierarchy; the provider mark and status stay independent.
+struct CompactAgentMark: View {
     let iconName: String
+    let isSubagent: Bool
     let foreground: Color
     let background: Color
     let statusSymbol: String
@@ -201,22 +206,42 @@ private struct CompactAgentMark: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        ZStack {
+            if isSubagent {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(foreground)
+                    .frame(width: 18, height: 18)
+                    .overlay(alignment: .topLeading) {
+                        providerMark(size: 13)
+                            .padding(1)
+                            .background(background, in: Circle())
+                            .offset(x: -5, y: -3)
+                    }
+            } else {
+                providerMark(size: 18)
+            }
+        }
+        .frame(width: 18, height: 18)
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: statusSymbol)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(statusColor)
+                .symbolEffect(.pulse, options: .repeating,
+                    isActive: animates && !reduceMotion)
+                .frame(width: 11, height: 11)
+                .background(background, in: Circle())
+                .offset(x: 3, y: 3)
+        }
+        .frame(width: 24, height: 24)
+        .accessibilityHidden(true)
+    }
+
+    private func providerMark(size: CGFloat) -> some View {
         Image(iconName)
             .resizable()
             .scaledToFit()
             .foregroundStyle(foreground)
-            .frame(width: 18, height: 18)
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: statusSymbol)
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(statusColor)
-                    .symbolEffect(.pulse, options: .repeating,
-                        isActive: animates && !reduceMotion)
-                    .frame(width: 11, height: 11)
-                    .background(background, in: Circle())
-                    .offset(x: 3, y: 3)
-            }
-            .frame(width: 24, height: 24)
-            .accessibilityHidden(true)
+            .frame(width: size, height: size)
     }
 }
