@@ -70,7 +70,6 @@ struct CodexWidgetContent: View {
                 activitySection.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            footer
         }
         .foregroundStyle(foreground)
     }
@@ -88,12 +87,18 @@ struct CodexWidgetContent: View {
                     .foregroundStyle(foreground.opacity(0.45))
             }
             Spacer(minLength: 0)
-            HStack(spacing: 5) {
-                Circle().fill(connection == .receiving ? accent : foreground.opacity(0.3))
-                    .frame(width: 5, height: 5)
-                Text(text.text(.codexLocal)).font(.system(size: 9, weight: .medium))
-            }
-            .foregroundStyle(foreground.opacity(0.55))
+            Circle().fill(connectionFailure != nil || connection == .repairRequired || connection == .unavailable
+                ? Color.orange : connection == .receiving || connection == .waitingForEvents
+                ? accent : foreground.opacity(0.3))
+                .frame(width: 5, height: 5)
+                .help(text.text(connectionFailure ?? connection.title))
+                .accessibilityLabel(text.text(connectionFailure == nil ? connection.title : .agentConnectionFailed))
+            Button(action: onRetry) { Image(systemName: "arrow.clockwise") }
+                .font(.system(size: 10))
+                .buttonStyle(.plain).foregroundStyle(foreground.opacity(0.4))
+                .help(text.text(isClaude ? .claudeRetry : .codexRetry))
+                .accessibilityLabel(text.text(isClaude ? .claudeRetry : .codexRetry))
+                .disabled(isBusy)
         }
     }
 
@@ -105,15 +110,25 @@ struct CodexWidgetContent: View {
                 if let window = usage.secondary { quota(window) }
             }
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(text.text(availability == .ambiguousAccounts ? .codexAmbiguousAccount
-                    : availability == .permissionDenied ? (isClaude ? .claudeAccessRequired : .codexAccessRequired) : (isClaude ? .claudeNoQuota : .codexNoQuota)))
-                    .font(.system(size: 10, weight: .medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(text.text(isClaude ? .claudeNoQuotaHint : .codexNoQuotaHint))
-                    .font(.system(size: 9)).foregroundStyle(foreground.opacity(0.45))
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(text.text(.codexQuota))
+                    .font(.system(size: 9, weight: .medium))
+                HStack(spacing: 5) {
+                    Text("—").font(.system(size: 17, weight: .medium, design: .rounded))
+                    if availability == .ambiguousAccounts || availability == .permissionDenied {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 10)).foregroundStyle(.orange)
+                    }
+                }
             }
+            .foregroundStyle(foreground.opacity(0.45))
+            .help(text.text(availability == .ambiguousAccounts ? .codexAmbiguousAccount
+                : availability == .permissionDenied ? (isClaude ? .claudeAccessRequired : .codexAccessRequired)
+                : (isClaude ? .claudeNoQuota : .codexNoQuota)))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(text.text(availability == .ambiguousAccounts ? .codexAmbiguousAccount
+                : availability == .permissionDenied ? (isClaude ? .claudeAccessRequired : .codexAccessRequired)
+                : (isClaude ? .claudeNoQuota : .codexNoQuota)))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
     }
@@ -131,8 +146,7 @@ struct CodexWidgetContent: View {
                     .font(.system(size: 17, weight: .medium, design: .rounded))
                     .monospacedDigit().tracking(-0.4)
                     .minimumScaleFactor(0.8)
-                Text(text.text(.codexRemaining))
-                    .font(.system(size: 8)).foregroundStyle(foreground.opacity(0.4))
+                    .accessibilityLabel("\(remaining.formatted(.percent.precision(.fractionLength(0)).locale(text.locale))) \(text.text(.codexRemaining))")
             }
             GeometryReader { geometry in
                 Capsule().fill(foreground.opacity(0.09))
@@ -141,10 +155,13 @@ struct CodexWidgetContent: View {
                     }
             }
             .frame(height: 3)
-            Text(resetText(window))
-                .font(.system(size: 9))
-                .foregroundStyle(window.resetsAt.map { $0 <= now } == true ? Color.orange : foreground.opacity(0.4))
-                .lineLimit(1).minimumScaleFactor(0.75)
+            if let reset = window.resetsAt, reset > now {
+                Label(duration(max(60, reset.timeIntervalSince(now))), systemImage: "arrow.clockwise")
+                    .font(.system(size: 9))
+                    .foregroundStyle(foreground.opacity(0.4))
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                    .accessibilityLabel(text.text(.codexResetsIn, duration(max(60, reset.timeIntervalSince(now)))))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
@@ -153,9 +170,10 @@ struct CodexWidgetContent: View {
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
-                Text(text.text(.codexAgentCount, active.count))
+                Label(active.count.formatted(.number.locale(text.locale)), systemImage: "person.2")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(foreground.opacity(0.5))
+                    .accessibilityLabel(text.text(.codexAgentCount, active.count))
                 Spacer(minLength: 0)
                 if connection == .notInstalled || connection == .repairRequired {
                     Button(text.text(connection == .repairRequired ? .codexRepair : .codexConnect), action: onConnect)
@@ -180,18 +198,10 @@ struct CodexWidgetContent: View {
                 .help(approval.summary ?? text.text(isClaude ? .claudePermissionDescription : .codexPermissionDescription))
             }
             if visibleAgents.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(text.text(connection == .repairRequired ? (isClaude ? .claudeRepairHint : .codexRepairHint)
-                        : connection == .notInstalled ? (isClaude ? .claudeConnectDescription : .codexConnectDescription)
-                        : connection == .waitingForEvents ? (isClaude ? .claudeWaitingForEvents : .codexWaitingForEvents) : .codexNoAgents))
-                        .font(.system(size: 10)).fixedSize(horizontal: false, vertical: true)
-                    if connection == .waitingForEvents {
-                        Link(text.text(isClaude ? .claudeTrustHelp : .codexTrustHelp), destination: URL(string: isClaude ? "https://code.claude.com/docs/en/hooks" : "https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks")!)
-                            .font(.system(size: 9))
-                    }
-                }
-                .foregroundStyle(foreground.opacity(0.5))
-                .frame(maxHeight: .infinity, alignment: .center)
+                Text("—")
+                    .font(.system(size: 10)).foregroundStyle(foreground.opacity(0.3))
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .accessibilityLabel(text.text(.codexNoAgents))
             } else {
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 7) {
@@ -230,33 +240,6 @@ struct CodexWidgetContent: View {
         return agent.status == .working ? accent : foreground.opacity(0.45)
     }
 
-    private var footer: some View {
-        HStack {
-            if let connectionFailure {
-                Text(text.text(connectionFailure)).foregroundStyle(.orange)
-            } else if connection == .repairRequired {
-                Text(text.text(isClaude ? .claudeRepairHint : .codexRepairHint)).foregroundStyle(.orange)
-            } else if connection == .waitingForEvents {
-                Text(text.text(isClaude ? .claudeTrustHint : .codexTrustHint)).foregroundStyle(foreground.opacity(0.5))
-                    .help(text.text(isClaude ? .claudeTrustHint : .codexTrustHint))
-            } else if connection == .unavailable {
-                Text(text.text(isClaude ? .claudeConnectionFailed : .codexConnectionFailed)).foregroundStyle(.orange)
-            } else if availability == .permissionDenied {
-                Text(text.text(isClaude ? .claudeAccessRequired : .codexAccessRequired)).foregroundStyle(.orange)
-            } else if let usage {
-                Text(now.timeIntervalSince(usage.observedAt) < 60 ? text.text(.codexUpdatedNow)
-                    : text.text(.codexLastUpdate, duration(now.timeIntervalSince(usage.observedAt))))
-                    .foregroundStyle(now.timeIntervalSince(usage.observedAt) > 600 ? Color.orange : foreground.opacity(0.3))
-            } else { Text(text.text(isClaude ? .claudeHistory : .codexHistory)).foregroundStyle(foreground.opacity(0.3)) }
-            Spacer(minLength: 0)
-            Button(action: onRetry) { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.plain).foregroundStyle(foreground.opacity(0.4))
-                .help(text.text(isClaude ? .claudeRetry : .codexRetry)).accessibilityLabel(text.text(isClaude ? .claudeRetry : .codexRetry))
-        }
-        .font(.system(size: 9))
-        .lineLimit(1)
-    }
-
     private func windowTitle(_ value: CodexUsageWindow) -> String {
         switch value.windowMinutes {
         case 300: return text.text(.codexFiveHours)
@@ -264,11 +247,6 @@ struct CodexWidgetContent: View {
         case .some(let minutes): return text.text(.codexWindowMinutes, minutes)
         case .none: return text.text(.codexQuota)
         }
-    }
-
-    private func resetText(_ value: CodexUsageWindow) -> String {
-        guard let reset = value.resetsAt, reset > now else { return text.text(.codexResetUnconfirmed) }
-        return text.text(.codexResetsIn, duration(max(60, reset.timeIntervalSince(now))))
     }
 
     private func duration(_ seconds: TimeInterval) -> String {

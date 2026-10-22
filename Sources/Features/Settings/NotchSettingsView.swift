@@ -65,58 +65,18 @@ struct NotchSettingsView: View {
                         Toggle(settings.localization.text(.settingsShowSeconds), isOn: $settings.showsSeconds)
                     }
 
-                    Section(settings.localization.text(.codexIntegrationTitle)) {
-                        Text(settings.localization.text(.codexIntegrationPrivacy))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if codex.connection == .notInstalled || codex.connection == .repairRequired {
-                            Button(settings.localization.text(codex.connection == .repairRequired ? .codexRepair : .codexConnect)) {
-                                codex.connect(localization: settings.localization)
-                            }
-                            .disabled(codex.isChangingConnection)
-                        } else {
-                            Text(settings.localization.text(codex.connection == .receiving
-                                ? .codexLinkActive : .codexWaitingForEvents))
-                                .font(.caption)
-                            Button(settings.localization.text(.codexDisconnect), role: .destructive) {
-                                confirmsDisconnect = true
-                            }
-                            .disabled(codex.isChangingConnection)
-                        }
-                        if codex.connection == .repairRequired {
-                            Text(settings.localization.text(.codexRepairHint))
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                        if let failure = codex.connectionFailure {
-                            Text(settings.localization.text(failure))
-                                .font(.caption).foregroundStyle(.orange)
-                        }
+                    Section(settings.localization.text(.widgetCodexTitle)) {
+                        connectionRow(codex.connection, failure: codex.connectionFailure,
+                            isBusy: codex.isChangingConnection,
+                            onConnect: { codex.connect(localization: settings.localization) },
+                            onDisconnect: { confirmsDisconnect = true })
                     }
                     .id("codex-connection")
-                    Section(settings.localization.text(.claudeIntegrationTitle)) {
-                        Text(settings.localization.text(.claudeIntegrationPrivacy))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if claude.connection == .notInstalled || claude.connection == .repairRequired {
-                            Button(settings.localization.text(claude.connection == .repairRequired ? .claudeRepair : .claudeConnect)) {
-                                claude.connect(localization: settings.localization)
-                            }
-                            .disabled(claude.isChangingConnection)
-                        } else {
-                            Text(settings.localization.text(claude.connection == .receiving
-                                ? .claudeLinkActive : .claudeWaitingForEvents))
-                                .font(.caption)
-                            Button(settings.localization.text(.claudeDisconnect), role: .destructive) {
-                                confirmsClaudeDisconnect = true
-                            }
-                            .disabled(claude.isChangingConnection)
-                        }
-                        if claude.connection == .repairRequired {
-                            Text(settings.localization.text(.claudeRepairHint))
-                                .font(.caption).foregroundStyle(.orange)
-                        }
-                        if let failure = claude.connectionFailure {
-                            Text(settings.localization.text(failure))
-                                .font(.caption).foregroundStyle(.orange)
-                        }
+                    Section(settings.localization.text(.widgetClaudeTitle)) {
+                        connectionRow(claude.connection, failure: claude.connectionFailure,
+                            isBusy: claude.isChangingConnection,
+                            onConnect: { claude.connect(localization: settings.localization) },
+                            onDisconnect: { confirmsClaudeDisconnect = true })
                     }
                     .id("claude-connection")
                     Section {
@@ -173,6 +133,25 @@ struct NotchSettingsView: View {
         } message: {
             Text(settings.localization.text(.claudeDisconnectDescription))
         }
+    }
+
+    private func connectionRow(_ connection: CodexConnection, failure: L10nKey?, isBusy: Bool,
+                               onConnect: @escaping () -> Void,
+                               onDisconnect: @escaping () -> Void) -> some View {
+        HStack {
+            Text(settings.localization.text(failure == nil ? connection.title : .agentConnectionFailed))
+                .foregroundStyle(failure != nil || connection == .repairRequired || connection == .unavailable
+                    ? Color.orange : Color.secondary)
+                .help(settings.localization.text(failure ?? connection.title))
+            Spacer()
+            if connection == .notInstalled || connection == .repairRequired {
+                Button(settings.localization.text(connection == .repairRequired ? .codexRepair : .codexConnect),
+                       action: onConnect)
+            } else {
+                Button(settings.localization.text(.codexDisconnect), role: .destructive, action: onDisconnect)
+            }
+        }
+        .disabled(isBusy)
     }
 
     private func palette(_ title: String, background: String, foreground: String) -> some View {

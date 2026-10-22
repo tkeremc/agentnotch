@@ -5,6 +5,15 @@ import Foundation
 
 enum CodexConnection: Equatable {
     case notInstalled, repairRequired, waitingForEvents, receiving, unavailable
+
+    var title: L10nKey {
+        switch self {
+        case .notInstalled: return .agentDisconnected
+        case .repairRequired: return .agentRepairRequired
+        case .waitingForEvents, .receiving: return .agentConnected
+        case .unavailable: return .agentConnectionFailed
+        }
+    }
 }
 
 enum CodexIndicator: Equatable {
