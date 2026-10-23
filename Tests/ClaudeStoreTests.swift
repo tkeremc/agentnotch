@@ -12,7 +12,8 @@ enum ClaudeStoreTests {
         ("Claude spool rejects links and oversized files", safety),
         ("Claude runtime metadata requires a matching live process and transition time", runtime),
         ("Claude newer runtime state reconciles denied permissions", projection),
-        ("Claude native PID matching uses UTC process start and rejects reused identities", nativeProcess)
+        ("Claude native PID matching uses UTC process start and rejects reused identities", nativeProcess),
+        ("Claude lost runtime identity cannot resurrect parent or child hooks", lostRuntime)
     ]
     private struct Failure: Error { let message: String }
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -144,7 +145,12 @@ enum ClaudeStoreTests {
             try expect(accepted.poll(now: now).first?.status == .working, "verified fresh busy status")
             payload["statusUpdatedAt"] = now.addingTimeInterval(-301).timeIntervalSince1970 * 1000
             try JSONSerialization.data(withJSONObject: payload).write(to: file)
-            try expect(accepted.poll(now: now).first?.status == .working, "verified long-running processes do not expire without a heartbeat")
+            let longRunning = accepted.poll(now: now)
+            try expect(longRunning.first?.status == .working, "verified long-running processes do not expire without a heartbeat")
+            try expect(longRunning.first?.isActive(at: now) == true,
+                       "verified long-running Claude stays in the widget activity list")
+            try expect(CodexCompactAgent.make(agents: longRunning, approvals: [], connection: .receiving,
+                now: now).count == 1, "verified long-running Claude retains its notch icon")
             payload["status"] = "shell"
             try JSONSerialization.data(withJSONObject: payload).write(to: file)
             try expect(accepted.poll(now: now).first?.status == .working, "background shell work remains visible")
@@ -171,6 +177,39 @@ enum ClaudeStoreTests {
         let changed = formatter.string(from: Date(timeIntervalSince1970: Double(info.pbi_start_tvsec) - 1))
         try expect(!ClaudeRuntimeReader.processMatches(pid, changed), "same PID with different start is never accepted")
     }
+    private static func lostRuntime() throws {
+        try fixture { home in
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
+            let directory = home.appendingPathComponent("sessions")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent("123.json")
+            try JSONSerialization.data(withJSONObject: ["pid": 123, "pidDomain": "darwin", "procStart": "original",
+                "sessionId": "main", "statusUpdatedAt": now.timeIntervalSince1970 * 1000, "status": "busy"]).write(to: file)
+            var alive = true
+            let reader = ClaudeRuntimeReader(home: home, processMatches: { _, _ in alive })
+            let main = CodexAgentSnapshot(id: "main", project: "fixture", name: nil, status: .working, updatedAt: now)
+            let child = CodexAgentSnapshot(id: "child", project: "fixture", name: "child", status: .working,
+                updatedAt: now, parentID: "main")
+            let request = CodexApprovalSnapshot(id: "request", sessionID: "main", turnID: nil,
+                project: "fixture", summary: nil, toolName: nil, requestedAt: now, agentID: "child")
+            try expect(reader.poll(now: now).count == 1, "process is initially verified")
+            alive = false
+            let live = reader.poll(now: now.addingTimeInterval(1), refreshFiles: false)
+            let result = ClaudeActivityProjection(runtime: live, hooked: [main, child], approvals: [request],
+                                                  unavailableSessions: reader.unavailableSessionIDs)
+            try expect(result.agents.isEmpty && result.approvals.isEmpty,
+                       "old hooks cannot undo loss of the previously verified process identity")
+            try expect(reader.fileScanCount == 1, "process loss is detected without scanning files")
+            alive = true
+            try expect(reader.poll(now: now.addingTimeInterval(2), refreshFiles: false).count == 1
+                && reader.unavailableSessionIDs.isEmpty, "reverified process clears the conservative fence")
+            try FileManager.default.removeItem(at: file)
+            try expect(reader.poll(now: now.addingTimeInterval(3)).isEmpty
+                && reader.unavailableSessionIDs == ["main"], "removed registry also prevents hook fallback")
+            _ = reader.poll(now: now.addingTimeInterval(304), refreshFiles: false)
+            try expect(reader.unavailableSessionIDs.isEmpty, "loss fences expire with stale hook evidence")
+        }
+    }
     private static func projection() throws {
         let now = Date()
         let hook = CodexAgentSnapshot(id: "main", project: "fixture", name: nil, status: .approvalRequested, updatedAt: now.addingTimeInterval(-1))
@@ -178,5 +217,14 @@ enum ClaudeStoreTests {
         let approval = CodexApprovalSnapshot(id: "request", sessionID: "main", turnID: nil, project: "fixture", summary: nil, toolName: "Bash", requestedAt: now.addingTimeInterval(-1))
         let projection = ClaudeActivityProjection(runtime: [runtime], hooked: [hook], approvals: [approval])
         try expect(projection.approvals.isEmpty && projection.agents.first?.status == .idle, "newer validated runtime clears denied/interrupted request")
+        try expect(projection.agents.allSatisfy { !$0.isActive(at: now) },
+                   "idle Claude disappears immediately from the widget list/count")
+        try expect(CodexCompactAgent.make(agents: projection.agents, approvals: projection.approvals,
+            connection: .receiving, now: now).isEmpty, "idle Claude also disappears from the notch")
+        let child = CodexAgentSnapshot(id: "child", project: "fixture", name: "Reviewer", status: .working,
+            updatedAt: now.addingTimeInterval(-1), parentID: "main")
+        let background = ClaudeActivityProjection(runtime: [runtime], hooked: [hook, child], approvals: [approval])
+        try expect(background.agents.filter { $0.isActive(at: now) }.map(\.id) == ["child"],
+                   "idle parent alone cannot finish a separately running background child")
     }
 }

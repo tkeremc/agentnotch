@@ -13,9 +13,34 @@ enum CodexStoreTests {
         ("Codex current sessions remain visible before hook repair", readOnlyActivity),
         ("Codex spool pruning does not report a connection failure", spoolPruning),
         ("Codex read failures preserve other events and retry unread files", spoolReadFailure),
-        ("Codex spool reads reject symlinks and oversized files", spoolFileSafety)
+        ("Codex spool reads reject symlinks and oversized files", spoolFileSafety),
+        ("Codex clock rollback rebuilds hook state without future watermarks", clockRollback)
     ]
     private struct Failure: Error { let message: String }
+    private static func clockRollback() throws {
+        guard let binary = ProcessInfo.processInfo.environment["AGENTNOTCH_TEST_CODEX_HELPER"] else {
+            throw Failure(message: "Tests/run.sh must supply helper")
+        }
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("CodexClock-\(UUID())")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let helper = URL(fileURLWithPath: binary)
+        let installer = CodexHookInstaller(codexHome: home, helperSource: helper)
+        try installer.install()
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for (kind, seconds) in [(CodexHookEvent.Kind.userPromptSubmit, 0.0), (.stop, 10.0)] {
+            let event = CodexHookEvent(kind: kind, timestamp: now.addingTimeInterval(seconds),
+                sessionID: "main", turnID: "turn", project: "fixture")
+            try JSONEncoder().encode(event).write(to: installer.eventsDirectory.appendingPathComponent("\(event.id).json"))
+        }
+        let monitor = CodexMonitor(home: home, helperSource: helper)
+        try expect(monitor.poll(now: now.addingTimeInterval(11)).agents.first?.status == .finished, "initial stop")
+        let result = monitor.poll(now: now.addingTimeInterval(5), changes: MonitorChanges())
+        try expect(result.agents.first?.status == .working && result.lastHookAt == now,
+                   "clock rollback replays eligible events and excludes future stop evidence")
+        try expect(monitor.poll(now: now.addingTimeInterval(11), changes: MonitorChanges()).agents.first?.status == .finished,
+                   "deferred stop is processed once the wall clock catches up")
+    }
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw Failure(message: message) }
     }

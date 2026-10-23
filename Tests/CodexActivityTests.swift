@@ -15,9 +15,14 @@ struct CodexActivityTests {
         ("Codex session evidence reconciles approvals without duplicates", projection),
         ("Codex session errors and tool issues remain distinct", sessionErrors),
         ("Codex compact indicator prioritizes approvals and errors", indicator),
+        ("Agent lists and compact icons exclude inactive lifecycle records", activeVisibility),
+        ("Codex completed and expired children disappear without erasing lifecycle evidence", inactiveChildren),
         ("Codex missing approval IDs correlate only with unique pre-tool calls", preToolCorrelation),
         ("Codex interrupt and session end clear only their scope", interruption),
-        ("Codex active records and replay deduplication stay bounded", bounds)
+        ("Codex active records and replay deduplication stay bounded", bounds),
+        ("Codex session end survives a stopped turn and rejects late children", sessionClosure),
+        ("Codex a newer explicit hook turn supersedes completed session history", nextHookTurn),
+        ("Codex superseded session turns cannot restart from delayed starts", supersededTurns)
     ]
 
     private struct Failure: Error { let message: String }
@@ -25,6 +30,56 @@ struct CodexActivityTests {
         if !condition() { throw Failure(message: message) }
     }
     private static let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private static func sessionClosure() throws {
+        var state = CodexActivityState()
+        state.consume(event(.userPromptSubmit, 0))
+        state.consume(event(.subagentStart, 1, agent: "child"))
+        state.consume(event(.stop, 2))
+        state.consume(event(.sessionEnd, 3))
+        state.consume(event(.preToolUse, 4, agent: "late-child"))
+        state.consume(event(.permissionRequest, 5, agent: "child"))
+        let now = epoch.addingTimeInterval(5)
+        try expect(state.agents(at: now).allSatisfy { !$0.isActive(at: now) },
+                   "session end after Stop must close children and fence late unknown children")
+        try expect(state.pendingApprovals(at: now).isEmpty, "ended session cannot create permission alerts")
+        let orphan = CodexAgentSnapshot(id: "log-child", project: "fixture", name: "child", status: .working,
+            updatedAt: now, parentID: "session", turnID: "child-turn", turnStartedAt: epoch)
+        let loggedParent = CodexAgentSnapshot(id: "session", project: "fixture", name: nil, status: .finished,
+            updatedAt: epoch.addingTimeInterval(2), turnID: "turn-1", turnStartedAt: epoch)
+        let unobservedRequest = CodexApprovalSnapshot(id: "missing-agent", sessionID: "session", turnID: nil,
+            project: "fixture", summary: nil, toolName: nil, requestedAt: now, agentID: "absent")
+        let projection = CodexActivityProjection(observed: [loggedParent, orphan], hooked: state.agents(at: now), approvals: [unobservedRequest])
+        try expect(projection.agents.allSatisfy { !$0.isActive(at: now) } && projection.approvals.isEmpty,
+                   "session end also fences children discovered only in rollout logs")
+        state.consume(event(.userPromptSubmit, 6, turn: "next"))
+        state.consume(event(.subagentStart, 7, turn: "next", agent: "new-child"))
+        try expect(state.agents(at: epoch.addingTimeInterval(7)).filter { $0.isActive(at: epoch.addingTimeInterval(7)) }.count == 2,
+                   "explicit new prompt can reopen the session")
+    }
+
+    private static func nextHookTurn() throws {
+        var state = CodexActivityState()
+        state.consume(event(.userPromptSubmit, 10, turn: "new"))
+        state.consume(event(.permissionRequest, 11, turn: "new"))
+        let old = CodexAgentSnapshot(id: "session", project: "fixture", name: nil, status: .finished,
+            updatedAt: epoch.addingTimeInterval(5), turnID: "old", turnStartedAt: epoch)
+        let now = epoch.addingTimeInterval(11)
+        let result = CodexActivityProjection(observed: [old], hooked: state.agents(at: now),
+                                             approvals: state.pendingApprovals(at: now))
+        try expect(result.agents.first?.status == .approvalRequested && result.approvals.count == 1,
+                   "new explicitly started hook turn is visible before its log arrives")
+    }
+
+    private static func supersededTurns() throws {
+        var state = CodexSessionActivity(id: "s", project: "fixture", name: nil, parentID: nil)
+        state.consume(["type": "task_started", "turn_id": "old"], at: epoch)
+        state.consume(["type": "task_started", "turn_id": "new"], at: epoch.addingTimeInterval(1))
+        state.consume(["type": "task_complete", "turn_id": "new"], at: epoch.addingTimeInterval(2))
+        state.consume(["type": "task_started", "turn_id": "old"], at: epoch.addingTimeInterval(3))
+        try expect(state.snapshot(at: epoch.addingTimeInterval(3))?.status == .finished,
+                   "a delayed start for a superseded turn cannot create phantom work")
+    }
 
     private static func event(_ kind: CodexHookEvent.Kind, _ seconds: TimeInterval,
                               session: String = "session", turn: String? = "turn-1",
@@ -195,6 +250,11 @@ struct CodexActivityTests {
         state.consume(event(.subagentStop, 2.5, agent: "child"))
         try expect(state.agents(at: epoch.addingTimeInterval(3)).first?.status == .working,
                    "an older terminal event must not finish the new run")
+        state.consume(event(.sessionEnd, 4, agent: "child"))
+        state.consume(event(.subagentStart, 5, agent: "child"))
+        let restarted = CodexActivityProjection(observed: [], hooked: state.agents(at: epoch.addingTimeInterval(5)), approvals: [])
+        try expect(restarted.agents.first?.status == .working && restarted.agents.first?.sessionEndedAt == nil,
+                   "explicit child restart clears its own previous session-end marker")
     }
 
     private static func projection() throws {
@@ -269,6 +329,52 @@ struct CodexActivityTests {
             now: epoch) == .failed, "failure is shown compactly")
         try expect(CodexIndicator.resolve(agents: [failed], approvals: [], connection: .receiving,
             now: epoch.addingTimeInterval(301)) == .none, "old failures do not keep the notch alert forever")
+        let unknownIssue = CodexAgentSnapshot(id: "old", project: "p", name: nil,
+            status: .unknown, updatedAt: epoch, hasIssue: true)
+        try expect(CodexIndicator.resolve(agents: [unknownIssue], approvals: [], connection: .receiving,
+            now: epoch) == .none, "an unverified tool issue cannot keep an inactive agent alert alive")
+        try expect(CodexIndicator.resolve(agents: [failed], approvals: [], connection: .receiving,
+            now: epoch.addingTimeInterval(-1)) == .none, "future errors do not create current alerts")
+    }
+
+    private static func activeVisibility() throws {
+        let statuses: [CodexAgentStatus] = [.working, .approvalRequested, .finished, .interrupted, .failed, .unknown, .idle]
+        let snapshots = statuses.map {
+            CodexAgentSnapshot(id: $0.rawValue, project: "fixture", name: nil, status: $0, updatedAt: epoch)
+        }
+        let active = snapshots.filter { $0.isActive(at: epoch) }
+        try expect(active.map(\.status) == [.working, .approvalRequested],
+                   "only proven work and permission waits belong in the activity list/count")
+        let compact = CodexCompactAgent.make(agents: snapshots, approvals: [], connection: .receiving, now: epoch)
+        try expect(Set(compact.map(\.id)) == Set(active.map(\.id)),
+                   "widget rows, count, and notch icons use the same active identities")
+        try expect(snapshots.filter { $0.isActive(at: epoch.addingTimeInterval(-1)) }.isEmpty,
+                   "future lifecycle timestamps are not visible yet")
+        let longRunning = snapshots[0]
+        try expect(longRunning.isActive(at: epoch.addingTimeInterval(86_400)),
+                   "presentation does not expire validated durable busy state")
+        try expect(CodexIndicator.resolve(agents: [snapshots[1]], approvals: [], connection: .receiving,
+            now: epoch) == .approval, "runtime permission evidence is sufficient without a hook request")
+    }
+
+    private static func inactiveChildren() throws {
+        var state = CodexActivityState()
+        state.consume(event(.userPromptSubmit, 0))
+        state.consume(event(.subagentStart, 1, agent: "complete"))
+        state.consume(event(.subagentStart, 2, agent: "running"))
+        state.consume(event(.subagentStop, 3, agent: "complete"))
+        let now = epoch.addingTimeInterval(3)
+        let snapshots = state.agents(at: now)
+        try expect(Set(snapshots.filter { $0.isActive(at: now) }.map(\.id)) == ["session", "running"],
+                   "a completed child disappears immediately while the parent and sibling remain")
+        try expect(snapshots.first { $0.id == "complete" }?.status == .finished,
+                   "terminal evidence remains available to reconcile delayed events")
+        let expiredAt = epoch.addingTimeInterval(303)
+        let expired = state.agents(at: expiredAt)
+        try expect(expired.allSatisfy { !$0.isActive(at: expiredAt) },
+                   "old unverified hooks become unknown and disappear instead of filling the list")
+        try expect(CodexCompactAgent.make(agents: expired, approvals: [], connection: .receiving,
+            now: expiredAt).isEmpty, "expired history creates no notch icons")
     }
 
     private static func interruption() throws {

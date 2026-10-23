@@ -126,8 +126,8 @@ struct ClaudeHookEvent: Codable, Equatable {
     }
 }
 
-/// Claude supplies session and agent IDs, but no turn ID. Explicit prompt and
-/// subagent starts are the only events allowed to reopen a terminal record.
+/// Claude supplies session and agent IDs, but no turn ID. New tool starts and
+/// permission requests can prove continuation after another hook vetoes Stop.
 struct ClaudeActivityState {
     private struct Approval {
         let snapshot: CodexApprovalSnapshot
@@ -142,6 +142,7 @@ struct ClaudeActivityState {
         var status: CodexAgentStatus = .unknown
         var updatedAt = Date.distantPast
         var startedAt: Date?
+        var endedAt: Date?
         var hasIssue = false
         var approvals: [Approval] = []
         var tools: [(id: String, name: String?, fingerprint: String)] = []
@@ -165,19 +166,26 @@ struct ClaudeActivityState {
         }
         if event.kind == .notification && event.notificationType != "permission_prompt" { return }
         let key = Self.key(event.sessionID, event.agentID)
+        let parentStart = event.agentID == nil && (event.kind == .sessionStart || event.kind == .userPromptSubmit)
+        if let ended = records[event.sessionID]?.endedAt,
+           !parentStart || event.timestamp <= ended { return }
         var agent = records[key] ?? Agent(sessionID: event.sessionID, agentID: event.agentID,
                                           project: event.project)
         guard event.timestamp >= agent.updatedAt else { return }
         let terminal = [.finished, .interrupted, .failed].contains(agent.status)
         let start = event.kind == .userPromptSubmit || event.kind == .subagentStart
         // Delayed same-timestamp hooks must never revive completed work.
-        if terminal && (event.timestamp == agent.updatedAt || !start && event.kind != .sessionEnd) { return }
+        let continuing = event.kind == .preToolUse || event.kind == .permissionRequest
+        if terminal && event.kind != .sessionEnd
+            && (event.timestamp == agent.updatedAt || !start && !continuing && event.kind != .sessionStart) { return }
         // Status lines also render when idle; they never prove active work.
         if event.kind == .statusLine { return }
         agent.project = event.project
         if let name = event.agentType { agent.name = String(name.prefix(128)) }
         agent.updatedAt = event.timestamp
-        if start {
+        if parentStart || start { agent.endedAt = nil }
+        if event.kind == .sessionEnd { agent.endedAt = event.timestamp }
+        if start || terminal && continuing {
             agent.startedAt = event.timestamp
             agent.approvals.removeAll()
             agent.tools.removeAll()
@@ -254,7 +262,7 @@ struct ClaudeActivityState {
                 name: agent.agentID.map { agent.name ?? String($0.prefix(8)) },
                 status: status, updatedAt: agent.updatedAt,
                 parentID: agent.agentID == nil ? nil : agent.sessionID,
-                turnStartedAt: agent.startedAt, hasIssue: agent.hasIssue)
+                turnStartedAt: agent.startedAt, hasIssue: agent.hasIssue, sessionEndedAt: agent.endedAt)
         }.sorted { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt }
     }
 

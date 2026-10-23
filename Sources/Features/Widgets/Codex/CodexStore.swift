@@ -38,10 +38,15 @@ enum CodexIndicator: Equatable {
 
     static func resolve(agents: [CodexAgentSnapshot], approvals: [CodexApprovalSnapshot],
                         connection: CodexConnection, now: Date = .now) -> Self {
-        if !approvals.isEmpty { return .approval }
-        if agents.contains(where: { ($0.status == .failed || $0.hasIssue)
-            && now.timeIntervalSince($0.updatedAt) < 300 }) { return .failed }
-        if agents.contains(where: { $0.status == .working }) { return .working }
+        let active = agents.filter { $0.isActive(at: now) }
+        if !approvals.isEmpty || active.contains(where: { $0.status == .approvalRequested }) { return .approval }
+        // Keep a short genuine error alert, without turning an unverified old
+        // tool issue into a running agent or preserving it in the activity list.
+        if agents.contains(where: {
+            let age = now.timeIntervalSince($0.updatedAt)
+            return age >= 0 && age < 300 && ($0.status == .failed || ($0.isActive(at: now) && $0.hasIssue))
+        }) { return .failed }
+        if !active.isEmpty { return .working }
         if connection == .repairRequired || connection == .unavailable { return .connectionIssue }
         return .none
     }
@@ -63,7 +68,7 @@ struct CodexCompactAgent: Identifiable, Equatable {
 
     static func make(agents: [CodexAgentSnapshot], approvals: [CodexApprovalSnapshot],
                      connection: CodexConnection, now: Date = .now) -> [Self] {
-        let active = agents.filter { $0.status == .working || $0.status == .approvalRequested }
+        let active = agents.filter { $0.isActive(at: now) }
             .sorted {
                 if $0.isSubagent != $1.isSubagent { return !$0.isSubagent }
                 return $0.id < $1.id
@@ -165,6 +170,11 @@ final class CodexMonitor {
     func poll(now: Date = .now, changes: MonitorChanges = .all) -> CodexMonitorSnapshot {
         var changes = changes
         if lastPollAt == nil || now < lastPollAt! { changes = .all }
+        if let previous = lastPollAt, now < previous {
+            activity = CodexActivityState()
+            seenFiles.removeAll()
+            lastHookAt = nil
+        }
         lastPollAt = now
         let sessions = home.appendingPathComponent("sessions")
         if changes.reconcile { usageResult = usage.refresh(now: now) }

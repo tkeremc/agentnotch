@@ -12,10 +12,28 @@ struct ClaudeActivityTests {
         ("Claude status line and stale events never fabricate running work", freshness),
         ("Claude tool errors and terminal failures remain distinct", failures),
         ("Claude official quota windows expire without fabricated reset values", usage),
-        ("Claude active records remain bounded", bounds)
+        ("Claude active records remain bounded", bounds),
+        ("Claude session end fences unknown late children until an explicit restart", sessionClosure),
+        ("Claude new tool execution after a vetoed stop resumes activity", continuation)
     ]
     private struct Failure: Error { let message: String }
     private static let epoch = Date(timeIntervalSince1970: 1_800_000_000)
+    private static func sessionClosure() throws {
+        var state = ClaudeActivityState()
+        state.consume(event(.userPromptSubmit, 0))
+        state.consume(event(.subagentStart, 1, agent: "known"))
+        state.consume(event(.sessionEnd, 2))
+        state.consume(event(.preToolUse, 3, agent: "unknown"))
+        state.consume(event(.subagentStart, 4, agent: "later"))
+        state.consume(event(.permissionRequest, 5, agent: "unknown"))
+        let now = epoch.addingTimeInterval(5)
+        try expect(state.agents(at: now).allSatisfy { !$0.isActive(at: now) } && state.pendingApprovals(at: now).isEmpty,
+                   "late child events cannot recreate work under an ended session")
+        state.consume(event(.userPromptSubmit, 6))
+        state.consume(event(.subagentStart, 7, agent: "later"))
+        try expect(state.agents(at: epoch.addingTimeInterval(7)).filter { $0.isActive(at: epoch.addingTimeInterval(7)) }.count == 2,
+                   "new explicit parent start allows new children")
+    }
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
         if !condition() { throw Failure(message: message) }
     }
@@ -78,7 +96,8 @@ struct ClaudeActivityTests {
         let stop = event(.stop, 3)
         state.consume(stop); state.consume(stop)
         state.consume(event(.permissionRequest, 1))
-        state.consume(event(.preToolUse, 4))
+        state.consume(event(.preToolUse, 3))
+        state.consume(event(.postToolUse, 4))
         state.consume(event(.userPromptSubmit, 3))
         try expect(state.agents(at: epoch.addingTimeInterval(4)).first?.status == .finished, "late and tied hooks cannot reopen")
         state.consume(event(.userPromptSubmit, 5))
@@ -94,6 +113,22 @@ struct ClaudeActivityTests {
         state.consume(event(.permissionRequest, 13))
         try expect(state.pendingApprovals(at: epoch.addingTimeInterval(24)).isEmpty, "old permissions expire")
         try expect(state.agents(at: epoch.addingTimeInterval(24)).first?.status == .unknown, "silence is unknown, not complete")
+    }
+    private static func continuation() throws {
+        var state = ClaudeActivityState()
+        state.consume(event(.userPromptSubmit, 0))
+        state.consume(event(.stop, 1))
+        state.consume(event(.preToolUse, 2, toolID: "new"))
+        try expect(state.agents(at: epoch.addingTimeInterval(2)).first?.status == .working,
+                   "a Stop hook can be vetoed; a strictly newer tool start proves continuation")
+        state.consume(event(.stop, 3))
+        state.consume(event(.permissionRequest, 4, toolID: "permission"))
+        try expect(state.agents(at: epoch.addingTimeInterval(4)).first?.status == .approvalRequested,
+                   "a new permission request proves an agent is waiting again")
+        state.consume(event(.sessionEnd, 5))
+        state.consume(event(.preToolUse, 6))
+        try expect(state.agents(at: epoch.addingTimeInterval(6)).first?.status == .finished,
+                   "a completed session cannot continue without an explicit parent restart")
     }
     private static func failures() throws {
         var state = ClaudeActivityState()

@@ -175,10 +175,12 @@ final class ClaudeMonitor {
         let usageResult = CodexUsageReadResult(snapshot: currentUsage,
             availability: eventAccessFailed ? .permissionDenied : (currentUsage == nil ? .noData : .available),
             scannedFiles: seenFiles.count, readErrors: [])
+        let runtimeAgents = runtime.poll(now: now, refreshFiles: changes.affects(home.appendingPathComponent("sessions")))
         let projection = ClaudeActivityProjection(
-            runtime: runtime.poll(now: now, refreshFiles: changes.affects(home.appendingPathComponent("sessions"))),
+            runtime: runtimeAgents,
             hooked: installed && !eventAccessFailed ? activity.agents(at: now) : [],
-            approvals: installed && !eventAccessFailed ? activity.pendingApprovals(at: now) : [])
+            approvals: installed && !eventAccessFailed ? activity.pendingApprovals(at: now) : [],
+            unavailableSessions: runtime.unavailableSessionIDs)
         return ClaudeMonitorSnapshot(usage: usageResult,
             agents: projection.agents,
             approvals: projection.approvals,
@@ -434,9 +436,8 @@ final class ClaudeStore: ObservableObject {
         if approvals != result.approvals { approvals = result.approvals }
         if lastHookAt != result.lastHookAt { lastHookAt = result.lastHookAt }
         if connection != result.connection { connection = result.connection }
-        let nextIndicator = result.agents.contains(where: { $0.status == .approvalRequested }) ? .approval
-            : CodexIndicator.resolve(agents: result.agents, approvals: result.approvals,
-                                     connection: result.connection)
+        let nextIndicator = CodexIndicator.resolve(agents: result.agents, approvals: result.approvals,
+                                                 connection: result.connection)
         let nextCompactAgents = CodexCompactAgent.make(agents: result.agents, approvals: result.approvals,
                                               connection: result.connection).map {
             CodexCompactAgent(id: $0.id == "codex-status" ? "claude-status" : $0.id,
@@ -454,6 +455,10 @@ final class ClaudeRuntimeReader {
     private let home: URL
     private let processMatches: (Int32, String) -> Bool
     private var records: [(pid: Int32, start: String, snapshot: CodexAgentSnapshot)] = []
+    private var verifiedSessions: Set<String> = []
+    private var lostSince: [String: Date] = [:]
+    private var lastProjectionAt: Date?
+    private(set) var unavailableSessionIDs: Set<String> = []
     private(set) var fileScanCount = 0
     private(set) var observationPaths: [URL] = []
     init(home: URL, processMatches: @escaping (Int32, String) -> Bool = ClaudeRuntimeReader.processMatches) {
@@ -470,7 +475,7 @@ final class ClaudeRuntimeReader {
             guard ClaudeMonitor.safeDirectory(home), lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
                   info.st_uid == getuid(),
                   let urls = try? FileManager.default.contentsOfDirectory(at: directory,
-                    includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+                    includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return project(now: now) }
             observationPaths = urls.filter { $0.pathExtension == "json" }
             for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }).prefix(512) {
                 guard url.pathExtension == "json", let filePID = Int32(url.deletingPathExtension().lastPathComponent),
@@ -506,6 +511,15 @@ final class ClaudeRuntimeReader {
                 records.append((filePID, start, snapshot))
             }
         }
+        return project(now: now)
+    }
+
+    private func project(now: Date) -> [CodexAgentSnapshot] {
+        if let previous = lastProjectionAt, now < previous {
+            verifiedSessions = []
+            lostSince = [:]
+        }
+        lastProjectionAt = now
         // A cached registry is not proof of liveness. Recheck the process identity
         // even on memory-only ticks so exited/reused PIDs cannot remain busy.
         var result: [String: CodexAgentSnapshot] = [:]
@@ -515,6 +529,20 @@ final class ClaudeRuntimeReader {
                 result[snapshot.id] = snapshot
             }
         }
+        let live = Set(result.keys)
+        for id in verifiedSessions.subtracting(live) { lostSince[id] = now }
+        for id in live { lostSince.removeValue(forKey: id) }
+        verifiedSessions = live
+        // Losing a previously verified process must not fall back to its old
+        // running hooks. Keep this fence for the hook freshness window only;
+        // a replacement verified process immediately clears it. This is loss
+        // of evidence, not proof that the task completed.
+        lostSince = lostSince.filter { now.timeIntervalSince($0.value) <= 300 }
+        if lostSince.count > 512 {
+            lostSince = Dictionary(uniqueKeysWithValues: lostSince.sorted { $0.value > $1.value }
+                .prefix(512).map { ($0.key, $0.value) })
+        }
+        unavailableSessionIDs = Set(lostSince.keys)
         return result.values.sorted { $0.id < $1.id }
     }
     private static let processDateFormatter: DateFormatter = {
@@ -544,9 +572,12 @@ final class ClaudeRuntimeReader {
 struct ClaudeActivityProjection {
     let agents: [CodexAgentSnapshot]
     let approvals: [CodexApprovalSnapshot]
-    init(runtime: [CodexAgentSnapshot], hooked: [CodexAgentSnapshot], approvals: [CodexApprovalSnapshot]) {
+    init(runtime: [CodexAgentSnapshot], hooked: [CodexAgentSnapshot], approvals: [CodexApprovalSnapshot],
+         unavailableSessions: Set<String> = []) {
         let live = Dictionary(runtime.map { ($0.id, $0) }, uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 })
-        var merged = Dictionary(hooked.map { ($0.id, $0) }, uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 })
+        var merged = Dictionary(hooked.filter {
+            !unavailableSessions.contains($0.parentID ?? $0.id)
+        }.map { ($0.id, $0) }, uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 })
         for snapshot in runtime {
             if let hook = merged[snapshot.id], hook.updatedAt > snapshot.updatedAt
                 || (snapshot.status == .unknown && hook.status == .approvalRequested) {
@@ -555,7 +586,11 @@ struct ClaudeActivityProjection {
                 merged[snapshot.id] = value
             } else { merged[snapshot.id] = snapshot }
         }
+        CodexAgentSnapshot.closeEndedSessions(in: &merged)
         self.approvals = approvals.filter { approval in
+            guard !unavailableSessions.contains(approval.sessionID) else { return false }
+            guard merged[approval.targetID]?.sessionEndedAt == nil,
+                  merged[approval.sessionID]?.sessionEndedAt == nil else { return false }
             guard let snapshot = live[approval.targetID] else { return true }
             return snapshot.updatedAt < approval.requestedAt || snapshot.status == .approvalRequested || snapshot.status == .unknown
         }

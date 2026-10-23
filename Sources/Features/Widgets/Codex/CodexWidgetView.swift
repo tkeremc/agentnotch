@@ -40,12 +40,10 @@ struct CodexWidgetContent: View {
         ? Color(red: 0.89, green: 0.62, blue: 0.47)
         : Color(red: 0.50, green: 0.85, blue: 0.67) }
     private var active: [CodexAgentSnapshot] {
-        agents.filter { $0.status == .working || $0.status == .approvalRequested }
+        agents.filter { $0.isActive(at: now) }
     }
     private var visibleAgents: [CodexAgentSnapshot] {
-        let recent = agents.filter { now.timeIntervalSince($0.updatedAt) < 3600
-            || $0.status == .working || $0.status == .approvalRequested }
-        let sorted = recent.sorted {
+        let sorted = active.sorted {
             let a = priority($0.status), b = priority($1.status)
             return a == b ? $0.updatedAt > $1.updatedAt : a < b
         }

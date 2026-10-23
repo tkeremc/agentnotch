@@ -110,6 +110,7 @@ struct CodexAgentSnapshot: Identifiable, Equatable {
     var turnStartedAt: Date? = nil
     var hasIssue = false
     var conversationTitle: String? = nil
+    var sessionEndedAt: Date? = nil
 
     var displayTitle: String { conversationTitle ?? name ?? project }
     var displaySubtitle: String {
@@ -117,6 +118,34 @@ struct CodexAgentSnapshot: Identifiable, Equatable {
         return project
     }
     var isSubagent: Bool { parentID != nil || name != nil }
+
+    /// Presentation follows lifecycle evidence, rather than showing recent history.
+    /// Readers already expire unverified hook/log activity to `unknown`; a
+    /// validated runtime can remain busy for a long time without a heartbeat.
+    func isActive(at now: Date) -> Bool {
+        updatedAt <= now && (status == .working || status == .approvalRequested)
+    }
+
+    func closingSession(at date: Date) -> Self {
+        Self(id: id, project: project, name: name, status: .finished,
+             updatedAt: max(updatedAt, date), parentID: parentID, turnID: turnID,
+             turnStartedAt: turnStartedAt, conversationTitle: conversationTitle, sessionEndedAt: date)
+    }
+
+    static func closeEndedSessions(in agents: inout [String: Self]) {
+        for id in Array(agents.keys) {
+            var current: String? = id
+            var visited: Set<String> = []
+            while let key = current, visited.count < 32, visited.insert(key).inserted,
+                  let ancestor = agents[key] {
+                if let end = ancestor.sessionEndedAt {
+                    agents[id] = agents[id]?.closingSession(at: end)
+                    break
+                }
+                current = ancestor.parentID
+            }
+        }
+    }
 }
 
 struct CodexApprovalSnapshot: Identifiable, Equatable {
@@ -147,6 +176,8 @@ struct CodexActivityState {
         var status: CodexAgentStatus = .unknown
         var updatedAt: Date
         var turnID: String?
+        var startedAt: Date?
+        var endedAt: Date?
         var closedTurns: [String] = []
         var approvals: [Approval] = []
         var tools: [(id: String, name: String?, fingerprint: String)] = []
@@ -176,24 +207,28 @@ struct CodexActivityState {
             guard let agentID = event.agentID, !agentID.isEmpty else { return }
         }
         let key = Self.key(sessionID: event.sessionID, agentID: event.agentID)
+        let parentStart = event.agentID == nil && (event.kind == .sessionStart || event.kind == .userPromptSubmit)
+        if let ended = records[event.sessionID]?.endedAt,
+           !parentStart || event.timestamp <= ended { return }
         var agent = records[key] ?? Agent(sessionID: event.sessionID, agentID: event.agentID,
                                          project: event.project, updatedAt: .distantPast)
         guard event.timestamp >= agent.updatedAt else { return }
-        if let turn = event.turnID, agent.closedTurns.contains(turn) {
+        if event.kind != .sessionEnd, let turn = event.turnID, agent.closedTurns.contains(turn) {
             // Reusing a child inside the same parent turn is a new run.
             guard event.kind == .subagentStart, event.timestamp > agent.updatedAt else { return }
             agent.closedTurns.removeAll { $0 == turn }
         }
         // Terminal events win timestamp ties, including delayed permission hooks.
-        if event.timestamp == agent.updatedAt,
+        if event.kind != .sessionEnd, event.timestamp == agent.updatedAt,
            agent.status == .finished || agent.status == .interrupted { return }
 
         if event.kind == .userPromptSubmit || event.kind == .subagentStart {
             if agent.turnID != event.turnID { closeTurn(&agent) }
             agent.turnID = event.turnID
+            agent.startedAt = event.timestamp
             agent.approvals.removeAll()
             agent.tools.removeAll()
-        } else if let turn = event.turnID {
+        } else if event.kind != .sessionEnd, let turn = event.turnID {
             if let current = agent.turnID, current != turn { return }
             if agent.status == .finished || agent.status == .interrupted {
                 // Only an explicit start can resume a terminal agent.
@@ -205,6 +240,8 @@ struct CodexActivityState {
 
         agent.project = event.project
         agent.updatedAt = event.timestamp
+        if parentStart || event.kind == .userPromptSubmit || event.kind == .subagentStart { agent.endedAt = nil }
+        if event.kind == .sessionEnd { agent.endedAt = event.timestamp }
         switch event.kind {
         case .sessionStart:
             // Session creation/resume alone does not mean a model is working.
@@ -271,7 +308,8 @@ struct CodexActivityState {
             return CodexAgentSnapshot(id: agent.agentID ?? agent.sessionID, project: agent.project,
                 name: agent.agentID.map { String($0.prefix(8)) }, status: status, updatedAt: agent.updatedAt,
                 parentID: agent.agentID == nil ? nil : agent.sessionID,
-                turnID: agent.turnID ?? agent.closedTurns.last)
+                turnID: agent.turnID ?? agent.closedTurns.last, turnStartedAt: agent.startedAt,
+                sessionEndedAt: agent.endedAt)
         }.sorted { lhs, rhs in
             lhs.updatedAt == rhs.updatedAt ? lhs.id < rhs.id : lhs.updatedAt > rhs.updatedAt
         }
@@ -346,8 +384,12 @@ struct CodexSessionActivity {
         switch kind {
         case "task_started":
             guard let turn, !turn.isEmpty, !closedTurns.contains(turn) else { return false }
+            if let previous = turnID, previous != turn {
+                closedTurns.append(previous)
+                if closedTurns.count > 64 { closedTurns.removeFirst() }
+            }
+            if turnID != turn { startedAt = at }
             turnID = turn
-            startedAt = at
             status = .working
             hasIssue = false
         case "task_complete", "turn_aborted":
@@ -393,31 +435,43 @@ struct CodexActivityProjection {
         var merged = sessions
         for hook in hooked {
             if let session = sessions[hook.id] {
+                if let end = hook.sessionEndedAt {
+                    if session.turnStartedAt.map({ $0 > end }) != true {
+                        merged[hook.id] = session.closingSession(at: end)
+                    }
+                    continue
+                }
+                // A new prompt can reach hooks before its rollout is flushed.
+                // A later delivery time alone cannot establish a new turn.
+                let newTurn = hook.turnStartedAt.map { $0 > session.updatedAt } == true
+                    && (hook.turnID == nil || session.turnID == nil || hook.turnID != session.turnID)
                 if let hookTurn = hook.turnID, let sessionTurn = session.turnID,
-                   hookTurn != sessionTurn { continue }
+                   hookTurn != sessionTurn, !newTurn { continue }
                 let terminal = [.finished, .interrupted, .failed].contains(session.status)
-                if terminal && ((hook.turnID != nil && hook.turnID == session.turnID)
+                if terminal && !newTurn && ((hook.turnID != nil && hook.turnID == session.turnID)
                     || session.updatedAt >= hook.updatedAt) { continue }
                 if let start = session.turnStartedAt, hook.updatedAt < start { continue }
                 // Log heartbeats must not hide a still-pending approval.
                 if hook.status == .approvalRequested || hook.updatedAt > session.updatedAt {
                     let value = CodexAgentSnapshot(id: session.id, project: session.project,
                         name: session.name, status: hook.status, updatedAt: max(session.updatedAt, hook.updatedAt),
-                        parentID: session.parentID, turnID: session.turnID,
-                        turnStartedAt: session.turnStartedAt, hasIssue: session.hasIssue,
+                        parentID: session.parentID, turnID: newTurn ? hook.turnID : session.turnID,
+                        turnStartedAt: newTurn ? hook.turnStartedAt : session.turnStartedAt,
+                        hasIssue: newTurn ? hook.hasIssue : session.hasIssue,
                         conversationTitle: session.conversationTitle)
                     merged[hook.id] = value
                 }
             } else { merged[hook.id] = hook }
         }
+        CodexAgentSnapshot.closeEndedSessions(in: &merged)
         self.approvals = approvals.filter { approval in
-            guard let session = sessions[approval.targetID] else { return true }
+            guard merged[approval.sessionID]?.sessionEndedAt == nil else { return false }
+            guard let session = merged[approval.targetID] else { return true }
             if let hookTurn = approval.turnID, let sessionTurn = session.turnID,
                hookTurn != sessionTurn { return false }
             if let start = session.turnStartedAt, approval.requestedAt < start { return false }
             let terminal = [.finished, .interrupted, .failed].contains(session.status)
-            return !(terminal && ((approval.turnID != nil && approval.turnID == session.turnID)
-                || session.updatedAt >= approval.requestedAt))
+            return !terminal
         }
         self.agents = merged.values.sorted {
             $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
