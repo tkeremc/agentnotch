@@ -15,7 +15,10 @@ enum LocalizationTests {
         ("localized substitutions preserve literal user payloads", substitutions),
         ("compiled catalog resolves English and Turkish count plurals", plurals),
         ("retained shelf errors change language without losing cause", retainedError),
-        ("English clock preserves 24-hour time across midnight", englishClock)
+        ("English clock preserves 24-hour time across midnight", englishClock),
+        ("clock calendar localizes month and first weekday", clockCalendarLocalization),
+        ("clock calendar fits short leap and six-week months", clockCalendarMonths),
+        ("clock calendar follows timezone month changes and daylight saving", clockCalendarTimeZones)
     ]
 
     private struct Failure: Error, CustomStringConvertible {
@@ -292,5 +295,63 @@ enum LocalizationTests {
                    "English clock uses zero-based midnight and follows the supplied time zone")
         try expect(midnight.date.contains("16") && midnight.shortDate.contains("October"),
                    "English dates roll over with the clock")
+    }
+
+    private static func clockCalendarLocalization() throws {
+        let instant = ISO8601DateFormatter().date(from: "2026-10-22T12:00:00Z")!
+        let utc = TimeZone(secondsFromGMT: 0)!
+        let tr = ClockMonthReadout(date: instant, timeZone: utc, locale: Locale(identifier: "tr_TR"))
+        let en = ClockMonthReadout(date: instant, timeZone: utc, locale: Locale(identifier: "en_US"))
+        let gb = ClockMonthReadout(date: instant, timeZone: utc, locale: Locale(identifier: "en_GB"))
+        try expect(tr.title == "Ekim 2026" && en.title == "October 2026", "Month heading follows app language")
+        try expect(tr.weekdays == ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"],
+                   "Turkish week starts on Monday with unambiguous short weekday names")
+        try expect(en.weekdays.first == "Sun" && gb.weekdays.first == "Mon", "English region determines first weekday")
+        try expect(tr.days[3]?.number == 1 && en.days[4]?.number == 1, "Month starts under the matching weekday")
+        try expect(tr.days.compactMap { $0 }.filter(\.isToday).map(\.number) == [22], "Highlight exactly the supplied local day")
+        try expect(tr.days.compactMap { $0 }.first?.accessibilityLabel.contains("Perşembe") == true,
+                   "Calendar dates expose full localized weekday names for VoiceOver")
+    }
+
+    private static func clockCalendarMonths() throws {
+        let formatter = ISO8601DateFormatter()
+        let fixtures = [("2026-02-14T12:00:00Z", 28), ("2024-02-29T12:00:00Z", 29),
+                        ("2026-04-15T12:00:00Z", 30), ("2026-05-15T12:00:00Z", 31)]
+        for (timestamp, count) in fixtures {
+            let month = ClockMonthReadout(date: formatter.date(from: timestamp)!, timeZone: TimeZone(secondsFromGMT: 0)!,
+                                          locale: Locale(identifier: "en_US"))
+            try expect(month.days.count == 42, "Six-week allocation must stay stable for every month")
+            try expect(month.days.compactMap { $0?.number } == Array(1...count), "Every date appears once; outside-month cells stay empty")
+        }
+        let sixWeeks = ClockMonthReadout(date: formatter.date(from: "2026-05-31T12:00:00Z")!,
+                                        timeZone: TimeZone(secondsFromGMT: 0)!, locale: Locale(identifier: "en_US"))
+        try expect(sixWeeks.days[35]?.number == 31 && sixWeeks.days[35]?.isToday == true,
+                   "Sixth-week final day is visible and can be highlighted")
+        let mondaySixWeeks = ClockMonthReadout(date: formatter.date(from: "2026-03-31T12:00:00Z")!,
+                                              timeZone: TimeZone(secondsFromGMT: 0)!, locale: Locale(identifier: "tr_TR"))
+        try expect(mondaySixWeeks.days[6]?.number == 1 && mondaySixWeeks.days[36]?.number == 31,
+                   "Sunday-starting 31-day months also fit Monday-first calendars")
+    }
+
+    private static func clockCalendarTimeZones() throws {
+        let formatter = ISO8601DateFormatter()
+        let instant = formatter.date(from: "2026-10-31T22:30:00Z")!
+        let locale = Locale(identifier: "tr_TR")
+        let utc = ClockMonthReadout(date: instant, timeZone: TimeZone(secondsFromGMT: 0)!, locale: locale)
+        let istanbul = ClockMonthReadout(date: instant, timeZone: TimeZone(identifier: "Europe/Istanbul")!, locale: locale)
+        try expect(utc.title == "Ekim 2026" && istanbul.title == "Kasım 2026", "Month follows the same local midnight as the clock")
+        try expect(utc.days.compactMap { $0 }.filter(\.isToday).map(\.number) == [31]
+                   && istanbul.days.compactMap { $0 }.filter(\.isToday).map(\.number) == [1], "Highlight follows timezone rollover")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        for timestamp in ["2026-03-08T12:00:00Z", "2026-11-01T12:00:00Z"] {
+            let month = ClockMonthReadout(date: formatter.date(from: timestamp)!, timeZone: calendar.timeZone,
+                                          locale: Locale(identifier: "en_US"))
+            for day in month.days.compactMap({ $0 }) {
+                try expect(calendar.component(.day, from: day.date) == day.number
+                           && calendar.component(.hour, from: day.date) == 0,
+                           "Calendar arithmetic preserves local dates across 23-hour and 25-hour days")
+            }
+        }
     }
 }
