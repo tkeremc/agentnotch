@@ -416,21 +416,15 @@ final class CodexUsageReader {
             return
         }
         guard state.hasMetadata, !state.unsupportedChild, state.ordinal > state.inheritedThrough,
-              record["type"] as? String == "event_msg",
+              let recordType = record["type"] as? String,
+              let metadata = activityMetadata(payload, recordType: recordType),
               let timestamp = record["timestamp"] as? String,
               let at = fractionalDate.date(from: timestamp) ?? standardDate.date(from: timestamp) else { return }
-        if at <= now { consumeActivity(payload, at: at, state: &state) }
+        if at <= now { consumeActivity(metadata, at: at, state: &state) }
         else if state.deferredActivity.count < 32 {
-            // Retain only event metadata, never an item with tool output.
-            let kind = payload["type"] as? String ?? ""
-            if ["task_started", "task_complete", "turn_aborted", "token_count"].contains(kind) {
-                var metadata: [String: Any] = ["type": kind]
-                metadata["turn_id"] = payload["turn_id"] as? String
-                if let error = payload["error"], !(error is NSNull) { metadata["error"] = true }
-                state.deferredActivity.append((at, metadata))
-            }
+            state.deferredActivity.append((at, metadata))
         }
-        guard payload["type"] as? String == "token_count",
+        guard recordType == "event_msg", payload["type"] as? String == "token_count",
               let limits = payload["rate_limits"] as? [String: Any] else { return }
         let primary = window(limits["primary"])
         let secondary = window(limits["secondary"])
@@ -460,6 +454,45 @@ final class CodexUsageReader {
         } else {
             state.buckets[bucket] = observation
         }
+    }
+
+    /// Reduce records before retaining anything, including future-dated events.
+    /// Tool arguments, answers, error messages and output never enter the cache.
+    private func activityMetadata(_ payload: [String: Any], recordType: String) -> [String: Any]? {
+        guard let kind = payload["type"] as? String else { return nil }
+        if recordType == "response_item" {
+            let requesting = ["function_call", "custom_tool_call"].contains(kind)
+                && CodexAgentSnapshot.isQuestionTool(payload["name"] as? String)
+            guard requesting || ["function_call_output", "custom_tool_call_output"].contains(kind),
+                  let id = boundedString(payload["call_id"]) else { return nil }
+            return ["type": requesting ? "input_requested" : "input_resolved", "call_id": id]
+        }
+        guard recordType == "event_msg" else { return nil }
+        var metadata: [String: Any] = ["type": kind]
+        metadata["turn_id"] = boundedString(payload["turn_id"])
+        switch kind {
+        case "task_started", "task_complete", "turn_aborted", "token_count":
+            if let error = payload["error"], !(error is NSNull) { metadata["error"] = true }
+        case "request_user_input":
+            guard let id = boundedString(payload["call_id"]) else { return nil }
+            metadata["type"] = "input_requested"
+            metadata["call_id"] = id
+        case "error":
+            let info = payload["codex_error_info"]
+            metadata["codex_error_info"] = boundedString(info) ?? (info as? [String: Any])?.keys.first
+        case "item_started", "item_completed":
+            if let item = payload["item"] as? [String: Any] {
+                var reduced: [String: Any] = [:]
+                reduced["type"] = boundedString(item["type"])
+                reduced["status"] = boundedString(item["status"])
+                reduced["exit_code"] = integer(item["exit_code"] ?? item["exitCode"])
+                reduced["is_error"] = (item["is_error"] ?? item["isError"]
+                    ?? (item["result"] as? [String: Any])?["isError"]) as? Bool
+                metadata["item"] = reduced
+            }
+        default: return nil
+        }
+        return metadata
     }
 
     private func consumeActivity(_ payload: [String: Any], at: Date, state: inout FileState) {

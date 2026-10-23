@@ -17,13 +17,15 @@ enum CodexConnection: Equatable {
 }
 
 enum CodexIndicator: Equatable {
-    case none, working, approval, failed, connectionIssue
+    case none, working, approval, question, failed, interrupted, connectionIssue
 
     var symbol: String {
         switch self {
         case .none, .working: return "circle.dotted.circle"
         case .approval: return "exclamationmark.bubble.fill"
+        case .question: return "questionmark.bubble.fill"
         case .failed: return "exclamationmark.triangle.fill"
+        case .interrupted: return "pause.circle.fill"
         case .connectionIssue: return "link.badge.plus"
         }
     }
@@ -31,7 +33,9 @@ enum CodexIndicator: Equatable {
         switch self {
         case .none, .working: return .codexWorking
         case .approval: return .codexPermissionRequested
+        case .question: return .agentAwaitingInput
         case .failed: return .codexFailed
+        case .interrupted: return .codexInterrupted
         case .connectionIssue: return .codexRepairHint
         }
     }
@@ -40,12 +44,14 @@ enum CodexIndicator: Equatable {
                         connection: CodexConnection, now: Date = .now) -> Self {
         let active = agents.filter { $0.isActive(at: now) }
         if !approvals.isEmpty || active.contains(where: { $0.status == .approvalRequested }) { return .approval }
+        if active.contains(where: { $0.status == .awaitingInput }) { return .question }
         // Keep a short genuine error alert, without turning an unverified old
         // tool issue into a running agent or preserving it in the activity list.
         if agents.contains(where: {
             let age = now.timeIntervalSince($0.updatedAt)
             return age >= 0 && age < 300 && ($0.status == .failed || ($0.isActive(at: now) && $0.hasIssue))
         }) { return .failed }
+        if agents.contains(where: { $0.status == .interrupted && $0.hasRecentTerminalAlert(at: now) }) { return .interrupted }
         if !active.isEmpty { return .working }
         if connection == .repairRequired || connection == .unavailable { return .connectionIssue }
         return .none
@@ -68,7 +74,7 @@ struct CodexCompactAgent: Identifiable, Equatable {
 
     static func make(agents: [CodexAgentSnapshot], approvals: [CodexApprovalSnapshot],
                      connection: CodexConnection, now: Date = .now) -> [Self] {
-        let active = agents.filter { $0.isActive(at: now) }
+        let active = agents.filter { $0.isActive(at: now) || $0.hasRecentTerminalAlert(at: now) }
             .sorted {
                 if $0.isSubagent != $1.isSubagent { return !$0.isSubagent }
                 return $0.id < $1.id
@@ -78,7 +84,9 @@ struct CodexCompactAgent: Identifiable, Equatable {
                 let status: CodexIndicator
                 if agent.status == .approvalRequested || approvals.contains(where: { $0.targetID == agent.id }) {
                     status = .approval
-                } else { status = agent.hasIssue ? .failed : .working }
+                } else if agent.status == .awaitingInput { status = .question }
+                else if agent.status == .interrupted { status = .interrupted }
+                else { status = agent.hasIssue || agent.status == .failed ? .failed : .working }
                 let label = agent.conversationTitle != nil || agent.name != nil
                     ? "\(agent.displayTitle) · \(agent.displaySubtitle)" : agent.project
                 return Self(id: agent.id, name: label, indicator: status,

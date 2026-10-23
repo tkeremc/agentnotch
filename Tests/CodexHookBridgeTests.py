@@ -79,6 +79,18 @@ class HookBridgeTests(HookSpoolCases, unittest.TestCase):
         self.assertNotIn("permissionSummary", event)
         self.assertNotIn("SECRET", json.dumps(event))
 
+    def test_structured_tool_outcome_retains_only_boolean(self):
+        for response, expected in [({"exit_code": 2}, True), ({"exitCode": 0}, False),
+                                   ({"isError": True}, True), ({"is_error": False}, False),
+                                   ({"exit_code": True}, None), ({"output": "PRIVATE OUTPUT"}, None)]:
+            payload = self.payload("PostToolUse")
+            payload["tool_response"] = dict(response, secret="PRIVATE OUTPUT")
+            before = set(self.spool.glob("*.json"))
+            self.invoke(payload)
+            event = json.loads((set(self.spool.glob("*.json")) - before).pop().read_text())
+            self.assertEqual(event.get("toolFailed"), expected)
+            self.assertNotIn("PRIVATE OUTPUT", json.dumps(event))
+
     def test_invalid_and_oversized_input_is_ignored(self):
         for value in [b"{broken", b"[]", b"x" * 1_048_577,
                       {"hook_event_name": "Unknown", "session_id": "s"},

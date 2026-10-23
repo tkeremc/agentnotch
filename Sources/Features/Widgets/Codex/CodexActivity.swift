@@ -28,11 +28,13 @@ struct CodexHookEvent: Codable, Equatable {
     let toolUseID: String?
     let permissionSummary: String?
     let toolFingerprint: String?
+    let toolFailed: Bool?
 
     init(schemaVersion: Int = 1, id: String = UUID().uuidString, kind: Kind,
          timestamp: Date = Date(), sessionID: String, turnID: String? = nil,
          agentID: String? = nil, project: String, toolName: String? = nil,
-         toolUseID: String? = nil, permissionSummary: String? = nil, toolFingerprint: String? = nil) {
+         toolUseID: String? = nil, permissionSummary: String? = nil, toolFingerprint: String? = nil,
+         toolFailed: Bool? = nil) {
         self.schemaVersion = schemaVersion
         self.id = id
         self.kind = kind
@@ -45,11 +47,12 @@ struct CodexHookEvent: Codable, Equatable {
         self.toolUseID = toolUseID
         self.permissionSummary = permissionSummary
         self.toolFingerprint = toolFingerprint
+        self.toolFailed = toolFailed
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, kind, timestamp, sessionID, turnID, agentID
-        case project, toolName, toolUseID, permissionSummary, toolFingerprint
+        case project, toolName, toolUseID, permissionSummary, toolFingerprint, toolFailed
     }
 
     init(from decoder: Decoder) throws {
@@ -70,7 +73,8 @@ struct CodexHookEvent: Codable, Equatable {
                   toolName: try values.decodeIfPresent(String.self, forKey: .toolName),
                   toolUseID: try values.decodeIfPresent(String.self, forKey: .toolUseID),
                   permissionSummary: try values.decodeIfPresent(String.self, forKey: .permissionSummary),
-                  toolFingerprint: try values.decodeIfPresent(String.self, forKey: .toolFingerprint))
+                  toolFingerprint: try values.decodeIfPresent(String.self, forKey: .toolFingerprint),
+                  toolFailed: try values.decodeIfPresent(Bool.self, forKey: .toolFailed))
     }
 
     func encode(to encoder: Encoder) throws {
@@ -87,6 +91,7 @@ struct CodexHookEvent: Codable, Equatable {
         try values.encodeIfPresent(toolUseID, forKey: .toolUseID)
         try values.encodeIfPresent(permissionSummary, forKey: .permissionSummary)
         try values.encodeIfPresent(toolFingerprint, forKey: .toolFingerprint)
+        try values.encodeIfPresent(toolFailed, forKey: .toolFailed)
     }
 
     private static func projectName(_ value: String) -> String {
@@ -96,7 +101,7 @@ struct CodexHookEvent: Codable, Equatable {
 }
 
 enum CodexAgentStatus: String, Equatable {
-    case working, approvalRequested, finished, interrupted, failed, unknown, idle
+    case working, approvalRequested, awaitingInput, finished, interrupted, failed, unknown, idle
 }
 
 struct CodexAgentSnapshot: Identifiable, Equatable {
@@ -111,6 +116,8 @@ struct CodexAgentSnapshot: Identifiable, Equatable {
     var hasIssue = false
     var conversationTitle: String? = nil
     var sessionEndedAt: Date? = nil
+    var issueUpdatedAt: Date? = nil
+    var inputUpdatedAt: Date? = nil
 
     var displayTitle: String { conversationTitle ?? name ?? project }
     var displaySubtitle: String {
@@ -123,7 +130,17 @@ struct CodexAgentSnapshot: Identifiable, Equatable {
     /// Readers already expire unverified hook/log activity to `unknown`; a
     /// validated runtime can remain busy for a long time without a heartbeat.
     func isActive(at now: Date) -> Bool {
-        updatedAt <= now && (status == .working || status == .approvalRequested)
+        updatedAt <= now && (status == .working || status == .approvalRequested || status == .awaitingInput)
+    }
+
+    func hasRecentTerminalAlert(at now: Date) -> Bool {
+        let age = now.timeIntervalSince(updatedAt)
+        return age >= 0 && age < 300 && (status == .failed || status == .interrupted)
+    }
+
+    static func isQuestionTool(_ name: String?) -> Bool {
+        guard let name else { return false }
+        return ["request_user_input", "AskUserQuestion"].contains(String(name.split(separator: ".").last ?? ""))
     }
 
     func closingSession(at date: Date) -> Self {
@@ -181,6 +198,10 @@ struct CodexActivityState {
         var closedTurns: [String] = []
         var approvals: [Approval] = []
         var tools: [(id: String, name: String?, fingerprint: String)] = []
+        var questions: [String: Date] = [:]
+        var hasIssue = false
+        var issueUpdatedAt: Date?
+        var inputUpdatedAt: Date?
     }
 
     private var records: [String: Agent] = [:]
@@ -228,6 +249,10 @@ struct CodexActivityState {
             agent.startedAt = event.timestamp
             agent.approvals.removeAll()
             agent.tools.removeAll()
+            agent.questions.removeAll()
+            agent.hasIssue = false
+            agent.issueUpdatedAt = event.timestamp
+            agent.inputUpdatedAt = event.timestamp
         } else if event.kind != .sessionEnd, let turn = event.turnID {
             if let current = agent.turnID, current != turn { return }
             if agent.status == .finished || agent.status == .interrupted {
@@ -261,12 +286,24 @@ struct CodexActivityState {
             if agent.approvals.count > 32 { agent.approvals.removeFirst() }
         case .preToolUse, .postToolUse:
             agent.status = .working
+            if event.kind == .preToolUse, CodexAgentSnapshot.isQuestionTool(event.toolName),
+               let id = event.toolUseID, !id.isEmpty, agent.questions.count < 32 {
+                agent.questions[id] = event.timestamp
+                agent.inputUpdatedAt = event.timestamp
+            }
             if event.kind == .preToolUse, let id = event.toolUseID, let fingerprint = event.toolFingerprint {
                 agent.tools.removeAll { $0.id == id }
                 agent.tools.append((id, event.toolName, fingerprint))
                 if agent.tools.count > 64 { agent.tools.removeFirst() }
             }
             if event.kind == .postToolUse {
+                if let failed = event.toolFailed {
+                    agent.hasIssue = failed
+                    agent.issueUpdatedAt = event.timestamp
+                }
+                if let id = event.toolUseID, agent.questions.removeValue(forKey: id) != nil {
+                    agent.inputUpdatedAt = event.timestamp
+                }
                 resolveMatchingApproval(event, in: &agent)
                 agent.tools.removeAll { $0.id == event.toolUseID }
             }
@@ -302,6 +339,8 @@ struct CodexActivityState {
             } else if !agent.approvals.isEmpty {
                 status = agent.approvals.contains { isFresh($0.snapshot.requestedAt, at: now) }
                     ? .approvalRequested : .unknown
+            } else if !agent.questions.isEmpty {
+                status = agent.questions.values.contains { isFresh($0, at: now) } ? .awaitingInput : .unknown
             } else {
                 status = isFresh(agent.updatedAt, at: now) ? agent.status : .unknown
             }
@@ -309,7 +348,8 @@ struct CodexActivityState {
                 name: agent.agentID.map { String($0.prefix(8)) }, status: status, updatedAt: agent.updatedAt,
                 parentID: agent.agentID == nil ? nil : agent.sessionID,
                 turnID: agent.turnID ?? agent.closedTurns.last, turnStartedAt: agent.startedAt,
-                sessionEndedAt: agent.endedAt)
+                hasIssue: agent.hasIssue, sessionEndedAt: agent.endedAt, issueUpdatedAt: agent.issueUpdatedAt,
+                inputUpdatedAt: agent.inputUpdatedAt)
         }.sorted { lhs, rhs in
             lhs.updatedAt == rhs.updatedAt ? lhs.id < rhs.id : lhs.updatedAt > rhs.updatedAt
         }
@@ -339,6 +379,7 @@ struct CodexActivityState {
         agent.turnID = nil
         agent.approvals.removeAll()
         agent.tools.removeAll()
+        agent.questions.removeAll()
     }
 
     private func resolveMatchingApproval(_ event: CodexHookEvent, in agent: inout Agent) {
@@ -372,6 +413,9 @@ struct CodexSessionActivity {
     private var status: CodexAgentStatus = .unknown
     private var hasIssue = false
     private var closedTurns: [String] = []
+    private var questions: [String: Date] = [:]
+    private var issueUpdatedAt: Date?
+    private var inputUpdatedAt: Date?
 
     init(id: String, project: String, name: String?, parentID: String?) {
         self.id = id; self.project = project; self.name = name; self.parentID = parentID
@@ -392,19 +436,46 @@ struct CodexSessionActivity {
             turnID = turn
             status = .working
             hasIssue = false
+            issueUpdatedAt = at
+            inputUpdatedAt = at
+            questions.removeAll()
         case "task_complete", "turn_aborted":
             guard let turn, turn == turnID else { return false }
             if kind == "turn_aborted" { status = .interrupted }
-            else { status = payload["error"].map { !($0 is NSNull) } == true ? .failed : .finished }
+            else { status = status == .failed || payload["error"].map { !($0 is NSNull) } == true ? .failed : .finished }
             closedTurns.append(turn)
             if closedTurns.count > 64 { closedTurns.removeFirst() }
             hasIssue = false
+            questions.removeAll()
+        case "input_requested", "input_resolved":
+            guard status == .working, turn == nil || turn == turnID,
+                  let id = payload["call_id"] as? String, !id.isEmpty, id.utf8.count <= 512 else { return false }
+            if kind == "input_requested", questions.count < 32 { questions[id] = at; inputUpdatedAt = at }
+            else if kind == "input_resolved", questions.removeValue(forKey: id) != nil { inputUpdatedAt = at }
+        case "error":
+            guard status == .working, turn == nil || turn == turnID else { return false }
+            let info = payload["codex_error_info"]
+            let category = (info as? String) ?? (info as? [String: Any])?.keys.first
+            guard category != "thread_rollback_failed", category != "active_turn_not_steerable" else { return false }
+            status = .failed
+            questions.removeAll()
+            if let turnID, !closedTurns.contains(turnID) {
+                closedTurns.append(turnID)
+                if closedTurns.count > 64 { closedTurns.removeFirst() }
+            }
         case "token_count", "item_started", "item_completed":
             guard status == .working, turn == nil || turn == turnID else { return false }
             if kind == "item_completed", let item = payload["item"] as? [String: Any] {
                 // A failed tool is an issue within a running task, not a failed turn.
-                if let exit = item["exitCode"] as? Int { hasIssue = exit != 0 }
-                else if let error = item["isError"] as? Bool { hasIssue = error }
+                var outcome: Bool?
+                if let exit = (item["exit_code"] ?? item["exitCode"]) as? Int { outcome = exit != 0 }
+                else if let error = (item["is_error"] ?? item["isError"]) as? Bool { outcome = error }
+                else if let error = (item["result"] as? [String: Any])?["isError"] as? Bool { outcome = error }
+                else if ["CommandExecution", "FileChange", "McpToolCall", "DynamicToolCall"].contains(item["type"] as? String ?? ""),
+                        let result = item["status"] as? String, ["failed", "completed"].contains(result) {
+                    outcome = result == "failed"
+                }
+                if let outcome { hasIssue = outcome; issueUpdatedAt = at }
             }
         default: return false
         }
@@ -416,10 +487,14 @@ struct CodexSessionActivity {
         guard updatedAt != .distantPast, updatedAt <= now else { return nil }
         let age = now.timeIntervalSince(updatedAt)
         // Silence never means completion. A fresh log write keeps long turns current.
-        let visibleStatus: CodexAgentStatus = status == .working && age > 300 ? .unknown : status
+        let visibleStatus: CodexAgentStatus
+        if status == .working && !questions.isEmpty {
+            visibleStatus = questions.values.contains { now.timeIntervalSince($0) >= 0 && now.timeIntervalSince($0) <= 300 }
+                ? .awaitingInput : .unknown
+        } else { visibleStatus = status == .working && age > 300 ? .unknown : status }
         return CodexAgentSnapshot(id: id, project: project, name: name, status: visibleStatus,
             updatedAt: updatedAt, parentID: parentID, turnID: turnID,
-            turnStartedAt: startedAt, hasIssue: hasIssue)
+            turnStartedAt: startedAt, hasIssue: hasIssue, issueUpdatedAt: issueUpdatedAt, inputUpdatedAt: inputUpdatedAt)
     }
 }
 
@@ -452,13 +527,27 @@ struct CodexActivityProjection {
                     || session.updatedAt >= hook.updatedAt) { continue }
                 if let start = session.turnStartedAt, hook.updatedAt < start { continue }
                 // Log heartbeats must not hide a still-pending approval.
-                if hook.status == .approvalRequested || hook.updatedAt > session.updatedAt {
+                let newerIssue = (hook.issueUpdatedAt ?? .distantPast) > (session.issueUpdatedAt ?? .distantPast)
+                let newerInput = (hook.inputUpdatedAt ?? .distantPast) > (session.inputUpdatedAt ?? .distantPast)
+                if hook.status == .approvalRequested || hook.updatedAt > session.updatedAt || newerIssue || newerInput {
+                    var status = hook.updatedAt >= session.updatedAt || hook.status == .approvalRequested
+                        ? hook.status : session.status
+                    // Heartbeats do not answer questions. Only the stream with
+                    // newer input evidence can clear or establish this wait.
+                    if !newTurn && (status == .working || status == .awaitingInput) {
+                        let input = newerInput ? hook : session
+                        if input.inputUpdatedAt != nil && (input.status == .working || input.status == .awaitingInput) {
+                            status = input.status
+                        }
+                    }
                     let value = CodexAgentSnapshot(id: session.id, project: session.project,
-                        name: session.name, status: hook.status, updatedAt: max(session.updatedAt, hook.updatedAt),
+                        name: session.name, status: status, updatedAt: max(session.updatedAt, hook.updatedAt),
                         parentID: session.parentID, turnID: newTurn ? hook.turnID : session.turnID,
                         turnStartedAt: newTurn ? hook.turnStartedAt : session.turnStartedAt,
-                        hasIssue: newTurn ? hook.hasIssue : session.hasIssue,
-                        conversationTitle: session.conversationTitle)
+                        hasIssue: newTurn || newerIssue ? hook.hasIssue : session.hasIssue,
+                        conversationTitle: session.conversationTitle,
+                        issueUpdatedAt: newTurn || newerIssue ? hook.issueUpdatedAt : session.issueUpdatedAt,
+                        inputUpdatedAt: newTurn || newerInput ? hook.inputUpdatedAt : session.inputUpdatedAt)
                     merged[hook.id] = value
                 }
             } else { merged[hook.id] = hook }

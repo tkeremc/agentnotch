@@ -111,6 +111,7 @@ enum L10nKey: String, CaseIterable {
     case codexUnknownActivity = "codex.unknownActivity"
     case codexSubagent = "codex.subagent"
     case agentMain = "agent.main"
+    case agentAwaitingInput = "agent.awaitingInput"
     case agentConnected = "agent.connected"
     case agentDisconnected = "agent.disconnected"
     case agentRepairRequired = "agent.repairRequired"

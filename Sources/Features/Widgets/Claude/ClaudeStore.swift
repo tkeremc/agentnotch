@@ -580,11 +580,19 @@ struct ClaudeActivityProjection {
         }.map { ($0.id, $0) }, uniquingKeysWith: { $0.updatedAt >= $1.updatedAt ? $0 : $1 })
         for snapshot in runtime {
             if let hook = merged[snapshot.id], hook.updatedAt > snapshot.updatedAt
-                || (snapshot.status == .unknown && hook.status == .approvalRequested) {
+                || (snapshot.status == .unknown && (hook.status == .approvalRequested || hook.status == .awaitingInput)) {
                 var value = hook
                 value.conversationTitle = snapshot.conversationTitle
                 merged[snapshot.id] = value
-            } else { merged[snapshot.id] = snapshot }
+            } else {
+                var value = snapshot
+                // A runtime busy transition has no tool outcome. It cannot
+                // clear a proven tool failure within the continuing work.
+                if snapshot.status == .working, let hook = merged[snapshot.id], hook.isActive(at: snapshot.updatedAt) {
+                    value.hasIssue = hook.hasIssue
+                }
+                merged[snapshot.id] = value
+            }
         }
         CodexAgentSnapshot.closeEndedSessions(in: &merged)
         self.approvals = approvals.filter { approval in

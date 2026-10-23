@@ -161,11 +161,12 @@ enum CodexStoreTests {
         try waitUntil { store.usage?.primary?.remainingPercent == 75 }
         try expect(store.connection == .waitingForEvents, "installed hooks still need first activity")
 
-        func emit(_ kind: String, toolID: String? = nil) throws {
+        func emit(_ kind: String, toolID: String? = nil, failed: Bool? = nil, tool: String = "Bash") throws {
             var payload: [String: Any] = ["hook_event_name": kind, "session_id": "session",
-                "turn_id": "turn", "cwd": "/private/fixture-project", "tool_name": "Bash",
+                "turn_id": "turn", "cwd": "/private/fixture-project", "tool_name": tool,
                 "tool_input": ["command": "PRIVATE COMMAND", "description": "Fixture permission"]]
             if let toolID { payload["tool_use_id"] = toolID }
+            if let failed { payload["tool_response"] = ["exit_code": failed ? 1 : 0, "output": "PRIVATE OUTPUT"] }
             let process = Process()
             let hookRoot = try JSONSerialization.jsonObject(with: Data(contentsOf: installer.hooksURL)) as! [String: Any]
             let groups = (hookRoot["hooks"] as! [String: Any])[kind] as! [[String: Any]]
@@ -184,6 +185,15 @@ enum CodexStoreTests {
         }
 
         try emit("UserPromptSubmit")
+        try emit("PreToolUse", toolID: "question", tool: "request_user_input")
+        try waitUntil { store.compactAgents.first?.indicator == .question }
+        try emit("PostToolUse", toolID: "parallel", failed: true)
+        try waitUntil { store.agents.first?.hasIssue == true }
+        try expect(store.compactAgents.first?.indicator == .question, "pending question takes priority over parallel tool issue")
+        try emit("PostToolUse", toolID: "question", tool: "request_user_input")
+        try waitUntil { store.compactAgents.first?.indicator == .failed }
+        try emit("PostToolUse", toolID: "recovered", failed: false)
+        try waitUntil { store.compactAgents.first?.indicator == .working }
         try emit("PermissionRequest", toolID: "request-a")
         try waitUntil { store.approvals.count == 1 && store.connection == .receiving }
         try expect(store.agents.contains { $0.status == .approvalRequested }, "permission event reaches presentation state")

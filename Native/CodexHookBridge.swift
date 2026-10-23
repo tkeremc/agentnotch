@@ -1,4 +1,5 @@
 import CryptoKit
+import CoreFoundation
 import Darwin
 import Foundation
 
@@ -17,6 +18,7 @@ private struct Event: Encodable {
     let toolUseID: String?
     let toolFingerprint: String?
     let permissionSummary: String?
+    let toolFailed: Bool?
 }
 
 private let supported = Set(["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest",
@@ -117,9 +119,21 @@ private func emit() {
         turnID: text(object["turn_id"], limit: 128),
         agentID: explicitAgent ?? (lifecycle ? nil : identity?.1), project: text(cwd) ?? "",
         toolName: tool, toolUseID: text(object["tool_use_id"], limit: 128),
-        toolFingerprint: fingerprint, permissionSummary: summary)
+        toolFingerprint: fingerprint, permissionSummary: summary,
+        toolFailed: kind == "PostToolUse" ? toolFailure(object["tool_response"]) : nil)
     guard let encoded = try? JSONEncoder().encode(event) else { return }
     HookSpool.append(encoded, id: id, directoryFD: directoryFD, deadline: executionDeadline)
+}
+
+// Only structured outcome flags leave the process; never retain output text.
+private func toolFailure(_ value: Any?) -> Bool? {
+    guard let object = value as? [String: Any] else { return nil }
+    if let exit = (object["exit_code"] ?? object["exitCode"]) as? NSNumber,
+       CFGetTypeID(exit) != CFBooleanGetTypeID(), exit.doubleValue.isFinite,
+       exit.doubleValue.rounded() == exit.doubleValue { return exit.doubleValue != 0 }
+    if let error = (object["isError"] ?? object["is_error"]) as? NSNumber,
+       CFGetTypeID(error) == CFBooleanGetTypeID() { return error.boolValue }
+    return nil
 }
 
 @main

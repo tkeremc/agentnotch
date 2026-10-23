@@ -21,12 +21,42 @@ struct CodexUsageTests {
         ("Codex quota defers future observations and promotes them without source writes", futureObservations),
         ("Codex quota reports no data until first observation becomes eligible", futureOnly),
         ("Codex session reader recovers parent and child activity from current logs", lifecycle),
+        ("Codex reader tracks question IDs and real command failures without hooks", questionAndFailure),
         ("Codex session reader keeps heartbeats and later turns separate", activityHeartbeat),
         ("Codex session reader defers future lifecycle and rejects malformed evidence", activityUncertainty),
         ("Codex block reader preserves UTF8 partial records across chunk and refresh boundaries", blockBoundaries),
         ("Codex block reader accepts the exact line limit and discards oversized partial input", lineLimit),
         ("Codex reader releases removed file and account indices without losing last quota", cachePruning)
     ]
+
+    private static func questionAndFailure() throws {
+        try fixture { root, reader in
+            let file = root.appendingPathComponent("question.jsonl")
+            try (encoded("session_meta", ["id": "s", "cwd": "/tmp/project"])
+                + encoded("event_msg", ["type": "task_started", "turn_id": "t"], time: 1)
+                + encoded("response_item", ["type": "function_call", "name": "functions.request_user_input",
+                    "call_id": "question", "arguments": "PRIVATE QUESTION"], time: 2)
+                + encoded("event_msg", ["type": "item_completed", "turn_id": "t",
+                    "item": ["type": "CommandExecution", "exit_code": 1, "aggregated_output": "PRIVATE OUTPUT"]], time: 3)
+                + encoded("response_item", ["type": "function_call_output", "call_id": "parallel", "output": "PRIVATE"], time: 4))
+                .write(to: file)
+            let now = ISO8601DateFormatter().date(from: "2026-10-20T00:00:10Z")!
+            _ = reader.refresh(now: now)
+            try expect(reader.activitySnapshots(now: now).first?.status == .awaitingInput,
+                       "actual response-item question stays pending across parallel outputs")
+            try expect(reader.activitySnapshots(now: now).first?.hasIssue == true, "actual command failure is retained")
+            try append(encoded("response_item", ["type": "function_call_output", "call_id": "question", "output": "PRIVATE ANSWER"], time: 11), to: file)
+            _ = reader.refresh(now: now) // Future output must not answer yet.
+            try expect(reader.activitySnapshots(now: now).first?.status == .awaitingInput, "future answer is deferred")
+            _ = reader.refresh(now: now.addingTimeInterval(2))
+            try expect(reader.activitySnapshots(now: now.addingTimeInterval(2)).first?.status == .working,
+                       "matching answer resumes without another file write")
+            try append(encoded("event_msg", ["type": "item_completed", "turn_id": "t",
+                "item": ["type": "CommandExecution", "exit_code": 0]], time: 13), to: file)
+            _ = reader.refresh(now: now.addingTimeInterval(4))
+            try expect(reader.activitySnapshots(now: now.addingTimeInterval(4)).first?.hasIssue == false, "success recovers badge")
+        }
+    }
 
     private static func lifecycle() throws {
         try fixture { root, reader in

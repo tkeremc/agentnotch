@@ -46,6 +46,32 @@ struct RenderCodex {
                 toolName: "Bash", requestedAt: now)
             let content = VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top, spacing: 18) {
+                    card("Question / failure / interruption", settings: settings) {
+                        CodexWidgetContent(settings: settings, usage: usage, agents: [
+                            CodexAgentSnapshot(id: "question", project: "agentnotch", name: nil, status: .awaitingInput, updatedAt: now),
+                            CodexAgentSnapshot(id: "failed", project: "agentnotch", name: "Reviewer", status: .failed, updatedAt: now),
+                            CodexAgentSnapshot(id: "interrupted", project: "bayinext", name: nil, status: .interrupted, updatedAt: now)
+                        ], connection: .receiving, now: now)
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(["GPTMark", "ClaudeMark"], id: \.self) { provider in
+                            ForEach([false, true], id: \.self) { child in
+                                HStack(spacing: 20) {
+                                    ForEach(Array([CodexIndicator.working, .question, .approval, .failed, .interrupted].enumerated()), id: \.offset) { _, indicator in
+                                        VStack(spacing: 8) {
+                                            CompactAgentMark(iconName: provider, isSubagent: child, foreground: .white,
+                                                background: .black, statusSymbol: indicator.symbol,
+                                                statusColor: indicator == .working ? .green : indicator == .failed ? .red : .orange,
+                                                animates: false)
+                                            Text(settings.localization.text(indicator.title)).font(.system(size: 8))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }.padding(16).foregroundStyle(.white).frame(width: 414)
+                }
+                HStack(alignment: .top, spacing: 18) {
                     card("Disconnected", settings: settings) {
                         CodexWidgetContent(settings: settings, usage: usage, now: now)
                     }
@@ -71,14 +97,26 @@ struct RenderCodex {
             .background(Color(red: 0.035, green: 0.04, blue: 0.045))
             .environment(\.colorScheme, .dark)
             .environment(\.locale, settings.localization.locale)
-            let renderer = ImageRenderer(content: content)
-            renderer.scale = 2
-            guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
-                  let bitmap = NSBitmapImageRep(data: tiff),
+            // A live host realizes ScrollView/LazyVStack rows; ImageRenderer
+            // silently omits them and cannot validate activity labels.
+            let host = NSHostingView(rootView: content)
+            let size = host.fittingSize
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host
+            window.orderFront(nil)
+            host.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            guard
                   let png = bitmap.representation(using: .png, properties: [:]) else {
                 throw CocoaError(.fileWriteUnknown)
             }
             try png.write(to: output.appendingPathComponent("codex-\(language.rawValue).png"))
+            window.orderOut(nil)
         }
     }
 

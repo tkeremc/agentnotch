@@ -16,10 +16,36 @@ struct ClaudeActivityTests {
         ("Claude partial quota updates preserve the other reported window", partialUsage),
         ("Claude active records remain bounded", bounds),
         ("Claude session end fences unknown late children until an explicit restart", sessionClosure),
-        ("Claude new tool execution after a vetoed stop resumes activity", continuation)
+        ("Claude new tool execution after a vetoed stop resumes activity", continuation),
+        ("Claude question tools and input notifications use a separate status", questions)
     ]
     private struct Failure: Error { let message: String }
     private static let epoch = Date(timeIntervalSince1970: 1_800_000_000)
+    private static func questions() throws {
+        var state = ClaudeActivityState()
+        state.consume(event(.userPromptSubmit, 0))
+        state.consume(ClaudeHookEvent(kind: .preToolUse, timestamp: epoch.addingTimeInterval(1),
+            sessionID: "main", project: "p", toolName: "AskUserQuestion", toolUseID: "question"))
+        state.consume(event(.postToolUse, 2, toolID: "parallel"))
+        let waiting = state.agents(at: epoch.addingTimeInterval(2))
+        try expect(waiting.first?.status == .awaitingInput, "parallel output cannot answer AskUserQuestion")
+        try expect(CodexCompactAgent.make(agents: waiting, approvals: [], connection: .receiving,
+            now: epoch.addingTimeInterval(2)).first?.indicator == .question, "question reaches compact badge")
+        state.consume(event(.postToolUse, 3, toolID: "question"))
+        try expect(state.agents(at: epoch.addingTimeInterval(3)).first?.status == .working, "matching answer resumes")
+        state.consume(ClaudeHookEvent(kind: .notification, timestamp: epoch.addingTimeInterval(4),
+            sessionID: "main", project: "p", notificationType: "elicitation_dialog"))
+        try expect(state.agents(at: epoch.addingTimeInterval(4)).first?.status == .awaitingInput, "MCP input notification is a question")
+        try expect(state.pendingApprovals(at: epoch.addingTimeInterval(4)).isEmpty, "elicitation is not permission")
+        state.consume(event(.preToolUse, 5, toolID: "next"))
+        try expect(state.agents(at: epoch.addingTimeInterval(5)).first?.status == .working, "new execution resolves uncorrelated input notification")
+        state.consume(event(.stopFailure, 6))
+        let failed = state.agents(at: epoch.addingTimeInterval(6))
+        let other = CodexAgentSnapshot(id: "other", project: "p", name: nil, status: .working, updatedAt: epoch)
+        let icons = CodexCompactAgent.make(agents: failed + [other], approvals: [], connection: .receiving,
+            now: epoch.addingTimeInterval(6))
+        try expect(icons.first { $0.id == "main" }?.indicator == .failed, "failure retains the agent identity beside another worker")
+    }
     private static func sessionClosure() throws {
         var state = ClaudeActivityState()
         state.consume(event(.userPromptSubmit, 0))

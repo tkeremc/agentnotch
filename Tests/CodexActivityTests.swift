@@ -15,7 +15,9 @@ struct CodexActivityTests {
         ("Codex session evidence reconciles approvals without duplicates", projection),
         ("Codex session errors and tool issues remain distinct", sessionErrors),
         ("Codex compact indicator prioritizes approvals and errors", indicator),
-        ("Agent lists and compact icons exclude inactive lifecycle records", activeVisibility),
+        ("Agent lists exclude history while compact icons retain recent terminal alerts", activeVisibility),
+        ("Codex question tools wait for matching answers and survive parallel work", questionTools),
+        ("Codex structured outcomes and fatal errors reach per-agent icons", statusRegression),
         ("Codex completed and expired children disappear without erasing lifecycle evidence", inactiveChildren),
         ("Codex missing approval IDs correlate only with unique pre-tool calls", preToolCorrelation),
         ("Codex interrupt and session end clear only their scope", interruption),
@@ -346,8 +348,11 @@ struct CodexActivityTests {
         try expect(active.map(\.status) == [.working, .approvalRequested],
                    "only proven work and permission waits belong in the activity list/count")
         let compact = CodexCompactAgent.make(agents: snapshots, approvals: [], connection: .receiving, now: epoch)
-        try expect(Set(compact.map(\.id)) == Set(active.map(\.id)),
-                   "widget rows, count, and notch icons use the same active identities")
+        try expect(Set(compact.map(\.id)) == Set(["working", "approvalRequested", "interrupted", "failed"]),
+                   "recent error and interruption alerts retain their own identities beside active work")
+        try expect(CodexCompactAgent.make(agents: snapshots.filter { !$0.isActive(at: epoch) },
+            approvals: [], connection: .receiving, now: epoch.addingTimeInterval(300)).isEmpty,
+                   "terminal alerts expire without becoming active agents")
         try expect(snapshots.filter { $0.isActive(at: epoch.addingTimeInterval(-1)) }.isEmpty,
                    "future lifecycle timestamps are not visible yet")
         let longRunning = snapshots[0]
@@ -355,6 +360,57 @@ struct CodexActivityTests {
                    "presentation does not expire validated durable busy state")
         try expect(CodexIndicator.resolve(agents: [snapshots[1]], approvals: [], connection: .receiving,
             now: epoch) == .approval, "runtime permission evidence is sufficient without a hook request")
+    }
+
+    private static func questionTools() throws {
+        var state = CodexActivityState()
+        state.consume(event(.userPromptSubmit, 0))
+        func tool(_ kind: CodexHookEvent.Kind, _ time: Double, _ id: String, _ name: String) -> CodexHookEvent {
+            CodexHookEvent(kind: kind, timestamp: epoch.addingTimeInterval(time), sessionID: "session",
+                turnID: "turn-1", project: "p", toolName: name, toolUseID: id)
+        }
+        state.consume(tool(.preToolUse, 1, "question", "functions.request_user_input"))
+        state.consume(tool(.postToolUse, 2, "parallel", "Bash"))
+        let waiting = state.agents(at: epoch.addingTimeInterval(2))
+        try expect(waiting.first?.status == .awaitingInput, "parallel completion cannot answer a question")
+        try expect(CodexCompactAgent.make(agents: waiting, approvals: [], connection: .receiving,
+            now: epoch.addingTimeInterval(2)).first?.indicator == .question, "question icon reaches presentation")
+        try expect(state.pendingApprovals(at: epoch.addingTimeInterval(2)).isEmpty, "questions are not permission requests")
+        try expect(state.agents(at: epoch.addingTimeInterval(302)).first?.status == .unknown, "unverified wait expires")
+        state.consume(tool(.postToolUse, 3, "question", "functions.request_user_input"))
+        try expect(state.agents(at: epoch.addingTimeInterval(3)).first?.status == .working, "matching answer resumes work")
+        var log = CodexSessionActivity(id: "session", project: "p", name: nil, parentID: nil)
+        log.consume(["type": "task_started", "turn_id": "turn-1"], at: epoch)
+        log.consume(["type": "input_requested", "call_id": "question"], at: epoch.addingTimeInterval(1))
+        log.consume(["type": "token_count"], at: epoch.addingTimeInterval(4))
+        let now = epoch.addingTimeInterval(4)
+        let resolved = CodexActivityProjection(observed: [log.snapshot(at: now)!], hooked: state.agents(at: now), approvals: [])
+        try expect(resolved.agents.first?.status == .working, "matching hook answer beats a newer log heartbeat")
+        log.consume(["type": "input_requested", "call_id": "next"], at: epoch.addingTimeInterval(5))
+        state.consume(tool(.postToolUse, 6, "parallel", "Bash"))
+        let pending = CodexActivityProjection(observed: [log.snapshot(at: epoch.addingTimeInterval(6))!],
+            hooked: state.agents(at: epoch.addingTimeInterval(6)), approvals: [])
+        try expect(pending.agents.first?.status == .awaitingInput, "newer parallel hook cannot clear logged question")
+    }
+
+    private static func statusRegression() throws {
+        var session = CodexSessionActivity(id: "session", project: "p", name: nil, parentID: nil)
+        session.consume(["type": "task_started", "turn_id": "turn-1"], at: epoch)
+        session.consume(["type": "item_completed", "item": ["type": "CommandExecution", "exit_code": 1]],
+                        at: epoch.addingTimeInterval(1))
+        try expect(session.snapshot(at: epoch.addingTimeInterval(1))?.hasIssue == true, "actual snake-case exit code is read")
+        var hooks = CodexActivityState()
+        hooks.consume(event(.userPromptSubmit, 0))
+        hooks.consume(CodexHookEvent(kind: .postToolUse, timestamp: epoch.addingTimeInterval(2),
+            sessionID: "session", turnID: "turn-1", project: "p", toolFailed: false))
+        let now = epoch.addingTimeInterval(3)
+        let recovered = CodexActivityProjection(observed: [session.snapshot(at: now)!], hooked: hooks.agents(at: now), approvals: [])
+        try expect(recovered.agents.first?.hasIssue == false, "newer structured success clears earlier log error")
+        session.consume(["type": "error", "codex_error_info": "thread_rollback_failed"], at: now)
+        try expect(session.snapshot(at: now)?.status == .working, "non-turn error does not terminate work")
+        session.consume(["type": "error", "codex_error_info": "usage_limit_exceeded"], at: now)
+        session.consume(["type": "task_complete", "turn_id": "turn-1"], at: now.addingTimeInterval(1))
+        try expect(session.snapshot(at: now.addingTimeInterval(1))?.status == .failed, "fatal error survives task completion")
     }
 
     private static func inactiveChildren() throws {

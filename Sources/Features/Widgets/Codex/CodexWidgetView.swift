@@ -43,7 +43,7 @@ struct CodexWidgetContent: View {
         agents.filter { $0.isActive(at: now) }
     }
     private var visibleAgents: [CodexAgentSnapshot] {
-        let sorted = active.sorted {
+        let sorted = agents.filter { $0.isActive(at: now) || $0.hasRecentTerminalAlert(at: now) }.sorted {
             let a = priority($0.status), b = priority($1.status)
             return a == b ? $0.updatedAt > $1.updatedAt : a < b
         }
@@ -234,7 +234,7 @@ struct CodexWidgetContent: View {
 
     private func statusColor(_ agent: CodexAgentSnapshot) -> Color {
         if agent.status == .failed || agent.hasIssue { return .red }
-        if agent.status == .approvalRequested { return .orange }
+        if agent.status == .approvalRequested || agent.status == .awaitingInput || agent.status == .interrupted { return .orange }
         return agent.status == .working ? accent : foreground.opacity(0.45)
     }
 
@@ -263,6 +263,7 @@ struct CodexWidgetContent: View {
         switch value {
         case .working: return .codexWorking
         case .approvalRequested: return .codexPermissionRequested
+        case .awaitingInput: return .agentAwaitingInput
         case .finished: return .codexFinished
         case .interrupted: return .codexInterrupted
         case .failed: return .codexFailed
@@ -275,6 +276,7 @@ struct CodexWidgetContent: View {
         switch value {
         case .failed: return 0
         case .approvalRequested: return 0
+        case .awaitingInput: return 0
         case .working: return 1
         case .unknown: return 2
         default: return 3

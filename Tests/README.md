@@ -10,7 +10,7 @@ Visual QA uses the real SwiftUI card with synthetic disconnected, working,
 permission-request and stale/unknown data in both languages:
 
 ```sh
-/bin/sh Research/CodexReadOnly/render.sh /tmp/agentnotch-codex-visual
+/bin/bash Research/CodexReadOnly/render.sh /tmp/agentnotch-codex-visual
 ```
 
 This renders a temporary AppKit application; it does not install hooks. Inspect
@@ -30,6 +30,12 @@ expansion stays disabled until settings closes, and automatically cancels the
 real consent dialog. No hook helper is bundled and no installation is accepted.
 Screenshots are written to the printed temporary directory. Codex location
 metadata may be read to display the consent dialog.
+
+Question-tool coverage includes matching answer IDs, parallel completions and
+hook/log reconciliation. Structured tool failures use the live `exit_code`
+schema; fatal errors and interruptions retain a per-agent compact alert for
+five minutes, without increasing the active-agent count. The visual harness
+also renders those states and both providers' main/subagent marks in EN/TR.
 
 The connection tests discover an isolated home and exercise cancel, consent,
 duplicate clicks and missing installations without showing a folder picker.

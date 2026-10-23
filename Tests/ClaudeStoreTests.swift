@@ -242,6 +242,12 @@ enum ClaudeStoreTests {
         let approval = CodexApprovalSnapshot(id: "request", sessionID: "main", turnID: nil, project: "fixture", summary: nil, toolName: "Bash", requestedAt: now.addingTimeInterval(-1))
         let projection = ClaudeActivityProjection(runtime: [runtime], hooked: [hook], approvals: [approval])
         try expect(projection.approvals.isEmpty && projection.agents.first?.status == .idle, "newer validated runtime clears denied/interrupted request")
+        var issue = hook
+        issue = CodexAgentSnapshot(id: "main", project: "fixture", name: nil, status: .working,
+            updatedAt: now.addingTimeInterval(-1), hasIssue: true)
+        let busy = CodexAgentSnapshot(id: "main", project: "fixture", name: nil, status: .working, updatedAt: now)
+        let toolFailure = ClaudeActivityProjection(runtime: [busy], hooked: [issue], approvals: [])
+        try expect(toolFailure.agents.first?.hasIssue == true, "runtime busy has no success evidence to clear tool failure")
         try expect(projection.agents.allSatisfy { !$0.isActive(at: now) },
                    "idle Claude disappears immediately from the widget list/count")
         try expect(CodexCompactAgent.make(agents: projection.agents, approvals: projection.approvals,

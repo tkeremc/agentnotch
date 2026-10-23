@@ -146,6 +146,7 @@ struct ClaudeActivityState {
         var hasIssue = false
         var approvals: [Approval] = []
         var tools: [(id: String, name: String?, fingerprint: String)] = []
+        var questions: [String: Date] = [:]
     }
     private var records: [String: Agent] = [:]
     private var seen: Set<String> = []
@@ -164,7 +165,9 @@ struct ClaudeActivityState {
         if event.kind == .subagentStart || event.kind == .subagentStop {
             guard event.agentID != nil else { return }
         }
-        if event.kind == .notification && event.notificationType != "permission_prompt" { return }
+        let inputNotification = event.kind == .notification
+            && ["elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"].contains(event.notificationType ?? "")
+        if event.kind == .notification && event.notificationType != "permission_prompt" && !inputNotification { return }
         let key = Self.key(event.sessionID, event.agentID)
         let parentStart = event.agentID == nil && (event.kind == .sessionStart || event.kind == .userPromptSubmit)
         if let ended = records[event.sessionID]?.endedAt,
@@ -190,6 +193,7 @@ struct ClaudeActivityState {
             agent.approvals.removeAll()
             agent.tools.removeAll()
             agent.hasIssue = false
+            agent.questions.removeAll()
         }
         switch event.kind {
         case .sessionStart:
@@ -197,6 +201,13 @@ struct ClaudeActivityState {
         case .userPromptSubmit, .subagentStart:
             agent.status = .working
         case .permissionRequest, .notification:
+            if inputNotification {
+                // Notifications have no tool identity. A later tool start or
+                // prompt proves continuation; unrelated completions do not.
+                agent.questions["notification"] = event.timestamp
+                agent.status = .working
+                break
+            }
             let matching = agent.tools.filter { $0.name == event.toolName && $0.fingerprint == event.toolFingerprint }
             let toolID = event.toolUseID ?? (matching.count == 1 ? matching.first?.id : nil)
             // Notification is a fallback and must not duplicate a real request.
@@ -213,6 +224,9 @@ struct ClaudeActivityState {
             agent.status = .working
         case .preToolUse:
             agent.status = .working
+            agent.questions.removeValue(forKey: "notification")
+            if CodexAgentSnapshot.isQuestionTool(event.toolName), let id = event.toolUseID,
+               !id.isEmpty, agent.questions.count < 32 { agent.questions[id] = event.timestamp }
             if let id = event.toolUseID, let fingerprint = event.toolFingerprint {
                 agent.tools.removeAll { $0.id == id }
                 agent.tools.append((id, event.toolName, fingerprint))
@@ -222,6 +236,7 @@ struct ClaudeActivityState {
             agent.status = .working
             agent.hasIssue = event.kind == .postToolUseFailure
             if let toolID = event.toolUseID, !toolID.isEmpty {
+                agent.questions.removeValue(forKey: toolID)
                 agent.approvals.removeAll { $0.toolID == toolID }
                 agent.tools.removeAll { $0.id == toolID }
             }
@@ -230,6 +245,7 @@ struct ClaudeActivityState {
             agent.hasIssue = event.kind == .stopFailure
             agent.approvals.removeAll()
             agent.tools.removeAll()
+            agent.questions.removeAll()
         case .statusLine: break
         }
         records[key] = agent
@@ -257,6 +273,8 @@ struct ClaudeActivityState {
             if terminal { status = agent.status }
             else if !agent.approvals.isEmpty {
                 status = agent.approvals.contains { fresh($0.snapshot.requestedAt, now) } ? .approvalRequested : .unknown
+            } else if !agent.questions.isEmpty {
+                status = agent.questions.values.contains { fresh($0, now) } ? .awaitingInput : .unknown
             } else { status = fresh(agent.updatedAt, now) ? agent.status : .unknown }
             return CodexAgentSnapshot(id: key, project: agent.project,
                 name: agent.agentID.map { agent.name ?? String($0.prefix(8)) },
