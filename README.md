@@ -1,9 +1,56 @@
-# agentnotch
+# AgentNotch
 
-SwiftUI ve AppKit ile yazılmış, menü çubuğunda çalışan bir macOS uygulaması.
-Fare çentiğe geldiğinde saat ve müzik çalar widget’larının bulunduğu çekmece açılır.
-Sol üstteki ev ve çekmece ikonları widget’lar ile dosya deposu arasında geçiş yapar.
+macOS çentiğinde saat, takvim, müzik, Codex ve Claude Code etkinliğini bir araya
+getiren, SwiftUI ve AppKit ile yazılmış ücretsiz ve açık kaynak bir uygulama.
+Fareyi çentiğe getirdiğinde widget çekmecesi açılır; dosya deposuna da aynı
+alandan ulaşabilirsin. Çentiksiz ekranlarda üst ortada çalışır.
+
+## Neden bu proje?
+
+AgentNotch'u kendi günlük ihtiyacım için geliştirmeye başladım. Çalışırken
+ajanların ne yaptığını, izin bekleyip beklemediğini ve kalan kullanım bilgilerini
+tek bir yerde görmek; saat, müzik ve geçici dosya bağlantılarını da elimin
+altında tutmak istiyordum.
+
+Benzer bir ihtiyacı olan herkes kullanabilsin diye projeyi açık kaynak olarak
+paylaşıyorum. Ücretsiz kullanabilir, kaynak kodunu inceleyebilir, kendi
+ihtiyacına göre değiştirebilir, fork edip geliştirebilir ve katkı sunabilirsin.
+
+## Özellikler
+
+- **Codex ve Claude Code:** Yerel ajan/alt ajan etkinliği, izin bekleme durumları,
+  mevcut verinin sağladığı kullanım kotası ve yenilenme zamanları.
+- **Saat ve takvim:** Saat, tarih, isteğe bağlı saniye ve içinde bulunulan ayın takvimi.
+- **Müzik çalar:** Sistemin paylaştığı medya bilgileri, albüm kapağı ve oynatma kontrolleri.
+- **Dosya deposu:** Dosya ve klasör bağlantılarını sürükleyip bırakma; asıllar yerinde kalır.
+- **Özelleştirme:** Widget ekleme, kaldırma, sıralama ve görünüm ayarları.
+- **Türkçe ve İngilizce:** Sistem dilini izleme veya uygulama içinden dil seçme.
+
 macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
+Kaynak koddan derlemek için macOS SDK'sı ve String Catalog araçlarını içeren
+Xcode kurulumu gerekir. Test betikleri ayrıca Python 3 kullanır.
+
+## Lisans ve kullanım
+
+AgentNotch, [MIT lisansı](LICENSE) altında açık kaynak olarak paylaşılır.
+Kişisel veya ticari amaçla ücretsiz kullanabilir; kopyalayabilir, değiştirebilir,
+geliştirebilir, dağıtabilir ve kendi projelerine dahil edebilirsin. Değiştirdiğin
+sürümün kaynak kodunu yayımlama zorunluluğun yoktur. Kopyalarda veya yazılımın
+önemli bölümlerinde telif hakkı ve lisans bildirimlerini koruman gerekir.
+
+Yazılım olduğu gibi sunulur; herhangi bir garanti verilmez. Bu lisans AgentNotch
+kodu içindir; Codex ve Claude hizmetlerinin kendi hesap, abonelik ve kullanım
+koşulları geçerliliğini korur. Üçüncü taraf simgelerinin lisansları ve marka
+hakları ayrıca geçerlidir; ayrıntılar [üçüncü taraf bildirimlerinde](Design/ThirdParty/README.md).
+Bu proje OpenAI veya Anthropic'in resmî bir ürünü değildir.
+
+## Katkıda bulunma
+
+Hata bildirimleri, fikirler, çeviriler ve pull request'ler memnuniyetle karşılanır.
+Bir sorunu bildirirken macOS sürümünü ve sorunu yeniden oluşturma adımlarını
+ekle; günlük veya ekran görüntüsü paylaşırken kişisel bilgilerini temizle.
+Geliştirme yapmadan önce [AGENTS.md](AGENTS.md) içindeki proje yapısını,
+geliştirme kurallarını ve doğrulama komutlarını incele.
 
 ## Çalıştırma
 
@@ -15,6 +62,12 @@ macOS 14 ve üzerini destekler; harici paket bağımlılığı yoktur.
 
 Proje yerel geliştirme için ad-hoc imzalanır; geliştirme ekibi seçmek gerekmez.
 Xcode proje dosyası, kaynaklar ve kaynak görseller bu Git deposunun içindedir.
+
+## Saat ve takvim
+
+Saat kartı saati, tarihi ve içinde bulunulan ayın takvimini gösterir; bugün
+işaretlenir. Kartın dar ve geniş yerleşimleri vardır. Saniye gösterimi ayarlardan
+açılıp kapatılabilir. Gün ve ay adları seçilen uygulama dilini izler.
 
 ## Müzik çalar
 
@@ -184,8 +237,12 @@ agentnotch/
 │       │   ├── Animation/        # Hareket ve geçiş hesapları
 │       │   └── Window/           # Native panel ve fare takibi
 │       ├── Settings/             # Kalıcı tercihler ve ayarlar ekranı
+│       ├── FileShelf/            # Kalıcı dosya bağlantıları ve sürükle/bırak
 │       └── Widgets/
-│           ├── Clock/            # Saat görünümü ve tarih/saat biçimlendirme
+│           ├── Clock/            # Saat, aylık takvim ve tarih biçimlendirme
+│           ├── Codex/            # Yerel Codex kotası, ajanlar ve hook bağlantısı
+│           ├── Claude/           # Yerel Claude Code kotası, ajanlar ve bağlantı
+│           ├── Monitoring/       # Ortak dosya izleme ve önbellek yaşam döngüsü
 │           ├── Media/            # Medya oturumu, kapak ve oynatıcı görünümü
 │           ├── Layout/           # Kart konumları ve çekmece boyutları
 │           ├── Models/           # Widget türleri ve boyut tanımları
@@ -194,9 +251,15 @@ agentnotch/
 │   ├── Assets.xcassets/          # Paketlenen uygulama ikonu ve menü simgesi
 │   └── Localizable.xcstrings     # İngilizce/Türkçe çeviriler ve çoğul kuralları
 ├── Configuration/
-│   └── Info.plist               # Uygulama kimliği ve macOS bilgileri
+│   ├── Info.plist               # Uygulama kimliği ve macOS bilgileri
+│   └── agentnotch.entitlements  # Sandbox izinleri
+├── Native/                     # Paketlenen medya ve hook yardımcıları
+├── Research/                   # Entegrasyon araştırmaları ve doğrulama araçları
+├── Design/ThirdParty/          # Üçüncü taraf simge lisansları ve bildirimleri
 ├── Tests/                       # Mevcut davranış testleri ve çalıştırıcısı
-└── Branding/                    # Düzenlenebilir SVG'ler ve ikon üretim aracı
+├── Branding/                    # Düzenlenebilir SVG'ler ve ikon üretim aracı
+├── AGENTS.md                    # Katkı ve kod ajanları için çalışma kuralları
+└── LICENSE                      # MIT lisansı
 ```
 
 Klasörler kodu sorumluluğuna göre düzenler. Üretim kodu tek bir `AgentNotch`
