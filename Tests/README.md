@@ -170,8 +170,9 @@ It never modifies real Claude settings, installs real hooks, reads credentials,
 or submits a paid Claude request. Full `bash Tests/run.sh` also checks widget
 persistence/reordering and combined compact-wing geometry.
 
-Claude fixtures cover missing/invalid/expired usage, isolated session and child
-identity, duplicate/out-of-order lifecycle events, permission-tool correlation,
+Claude fixtures cover missing/invalid/expired usage, idle quota retention until
+each reported reset, partial quota updates, reconstruction after cache release,
+isolated session and child identity, duplicate/out-of-order lifecycle events, permission-tool correlation,
 notification fallback, long-lived native-process-verified registry states,
 PID reuse, denial/interrupt reconciliation, preservation of unrelated hooks,
 existing statusline stdin/stdout/options, safe disconnect after replacement,

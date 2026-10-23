@@ -12,6 +12,8 @@ struct ClaudeActivityTests {
         ("Claude status line and stale events never fabricate running work", freshness),
         ("Claude tool errors and terminal failures remain distinct", failures),
         ("Claude official quota windows expire without fabricated reset values", usage),
+        ("Claude quota survives idle time until each reported reset", idleUsage),
+        ("Claude partial quota updates preserve the other reported window", partialUsage),
         ("Claude active records remain bounded", bounds),
         ("Claude session end fences unknown late children until an explicit restart", sessionClosure),
         ("Claude new tool execution after a vetoed stop resumes activity", continuation)
@@ -157,5 +159,50 @@ struct ClaudeActivityTests {
         var state = ClaudeActivityState()
         for index in 0..<300 { state.consume(event(.userPromptSubmit, Double(index), session: "s\(index)")) }
         try expect(state.agents(at: epoch.addingTimeInterval(300)).count == 256, "bounded records")
+    }
+
+    private static func idleUsage() throws {
+        var state = ClaudeUsageState()
+        let reset = epoch.addingTimeInterval(5 * 3600)
+        let weeklyReset = epoch.addingTimeInterval(7 * 86400)
+        state.consume(ClaudeHookEvent(kind: .statusLine, timestamp: epoch, sessionID: "main", project: "fixture",
+            fiveHourUsedPercent: 35, fiveHourResetsAt: reset.timeIntervalSince1970,
+            sevenDayUsedPercent: 80, sevenDayResetsAt: weeklyReset.timeIntervalSince1970), now: epoch)
+        for seconds: TimeInterval in [900, 901, 3600, 5 * 3600 - 1] {
+            let snapshot = state.current(at: epoch.addingTimeInterval(seconds))
+            try expect(snapshot?.primary?.usedPercent == 35 && snapshot?.secondary?.usedPercent == 80,
+                       "idle time must not discard unexpired reported limits")
+            try expect(snapshot?.observedAt == epoch, "retaining quota must not pretend it was refreshed")
+        }
+        try expect(state.current(at: reset)?.primary == nil, "five-hour quota expires exactly at its reset")
+        try expect(state.current(at: reset)?.secondary?.usedPercent == 80, "weekly quota survives the five-hour reset")
+        try expect(state.current(at: weeklyReset) == nil, "no fabricated usage after both resets")
+    }
+
+    private static func partialUsage() throws {
+        var state = ClaudeUsageState()
+        let reset = epoch.addingTimeInterval(5 * 3600).timeIntervalSince1970
+        let weeklyReset = epoch.addingTimeInterval(7 * 86400).timeIntervalSince1970
+        state.consume(ClaudeHookEvent(kind: .statusLine, timestamp: epoch, sessionID: "main", project: "fixture",
+            fiveHourUsedPercent: 35, fiveHourResetsAt: reset,
+            sevenDayUsedPercent: 80, sevenDayResetsAt: weeklyReset), now: epoch)
+        let next = epoch.addingTimeInterval(1000)
+        state.consume(ClaudeHookEvent(kind: .statusLine, timestamp: next, sessionID: "other", project: "fixture",
+            fiveHourUsedPercent: 40, fiveHourResetsAt: reset), now: next)
+        try expect(state.current(at: next)?.primary?.usedPercent == 40, "new reported window replaces its old value")
+        try expect(state.current(at: next)?.secondary?.usedPercent == 80, "omitted window retains its last reported value")
+        let later = next.addingTimeInterval(1)
+        state.consume(ClaudeHookEvent(kind: .statusLine, timestamp: later, sessionID: "other", project: "fixture",
+            fiveHourUsedPercent: 101, fiveHourResetsAt: reset,
+            sevenDayUsedPercent: 81, sevenDayResetsAt: weeklyReset), now: later)
+        try expect(state.current(at: later)?.primary?.usedPercent == 40, "invalid partial window cannot erase valid data")
+        try expect(state.current(at: later)?.secondary?.usedPercent == 81, "weekly-only update is applied")
+        state.consume(ClaudeHookEvent(kind: .statusLine, timestamp: later.addingTimeInterval(1),
+            sessionID: "empty", project: "fixture"), now: later.addingTimeInterval(1))
+        try expect(state.current(at: later.addingTimeInterval(1))?.primary?.usedPercent == 40,
+                   "a status line without quota cannot erase reported usage")
+        state.consume(ClaudeHookEvent(kind: .statusLine, timestamp: epoch, sessionID: "delayed", project: "fixture",
+            fiveHourUsedPercent: 10, fiveHourResetsAt: reset), now: later)
+        try expect(state.current(at: later)?.primary?.usedPercent == 40, "delayed quota cannot overwrite newer evidence")
     }
 }

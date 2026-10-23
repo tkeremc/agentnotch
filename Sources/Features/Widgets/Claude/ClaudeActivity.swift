@@ -281,8 +281,9 @@ struct ClaudeActivityState {
     }
 }
 
-/// Status line rate_limits is the official source. Expired windows become
-/// unavailable until Claude reports fresh evidence; a reset never implies 0%.
+/// Retain the last reported quota until each window's reset, even when the
+/// event-driven status line goes quiet or omits a window in a later update.
+/// Expired windows remain unknown until new evidence; a reset never implies 0%.
 struct ClaudeUsageState {
     private(set) var snapshot: CodexUsageSnapshot?
     mutating func consume(_ event: ClaudeHookEvent, now: Date) {
@@ -292,12 +293,12 @@ struct ClaudeUsageState {
         let primary = window(event.fiveHourUsedPercent, reset: event.fiveHourResetsAt, minutes: 300)
         let secondary = window(event.sevenDayUsedPercent, reset: event.sevenDayResetsAt, minutes: 10080)
         guard primary != nil || secondary != nil else { return }
-        snapshot = CodexUsageSnapshot(primary: primary, secondary: secondary, observedAt: event.timestamp,
+        snapshot = CodexUsageSnapshot(primary: primary ?? snapshot?.primary,
+            secondary: secondary ?? snapshot?.secondary, observedAt: event.timestamp,
             planType: nil, limitID: "claude", identityKey: nil)
     }
     func current(at now: Date) -> CodexUsageSnapshot? {
-        guard let snapshot, now >= snapshot.observedAt,
-              now.timeIntervalSince(snapshot.observedAt) <= 900 else { return nil }
+        guard let snapshot, now >= snapshot.observedAt else { return nil }
         let primary = snapshot.primary.flatMap { $0.resetsAt.map { $0 <= now } == true ? nil : $0 }
         let secondary = snapshot.secondary.flatMap { $0.resetsAt.map { $0 <= now } == true ? nil : $0 }
         guard primary != nil || secondary != nil else { return nil }

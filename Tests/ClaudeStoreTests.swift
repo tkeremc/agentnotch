@@ -8,6 +8,7 @@ enum ClaudeStoreTests {
         ("Claude discovers real and configured homes without symlinks", discovery),
         ("Claude connection installation requires explicit consent", consent),
         ("Claude spool safely reads lifecycle and official quota events", monitor),
+        ("Claude monitor retains idle quota across ticks and cache reconstruction", idleQuota),
         ("Claude compact agents retain provider and hierarchy through store updates", compactRoles),
         ("Claude spool rejects links and oversized files", safety),
         ("Claude runtime metadata requires a matching live process and transition time", runtime),
@@ -84,6 +85,30 @@ enum ClaudeStoreTests {
             let expired = monitor.poll(now: now.addingTimeInterval(301))
             try expect(expired.usage.snapshot == nil && expired.agents.first?.status == .unknown, "expired data is honest")
             try expect(expired.connection == .waitingForEvents, "silence does not indicate connection failure")
+        }
+    }
+    private static func idleQuota() throws {
+        try fixture { home in
+            let source = try helper()
+            try ClaudeHookInstaller(claudeHome: home, helperSource: source).install()
+            let now = Date()
+            try spool(ClaudeHookEvent(kind: .statusLine, timestamp: now, sessionID: "main", project: "fixture",
+                fiveHourUsedPercent: 25, fiveHourResetsAt: now.addingTimeInterval(5 * 3600).timeIntervalSince1970,
+                sevenDayUsedPercent: 60, sevenDayResetsAt: now.addingTimeInterval(7 * 86400).timeIntervalSince1970), home: home)
+            let monitor = ClaudeMonitor(home: home, helperSource: source)
+            _ = monitor.poll(now: now)
+            let later = now.addingTimeInterval(3600)
+            let idle = monitor.poll(now: later, changes: MonitorChanges())
+            try expect(idle.usage.snapshot?.primary?.remainingPercent == 75 && idle.usage.availability == .available,
+                       "memory-only tick retains quota beyond fifteen minutes")
+            try expect(idle.connection == .waitingForEvents, "idle quota is independent of activity freshness")
+            try expect(monitor.eventScanCount == 1, "retaining quota adds no spool scans")
+            let rebuilt = ClaudeMonitor(home: home, helperSource: source).poll(now: later)
+            try expect(rebuilt.usage.snapshot == idle.usage.snapshot,
+                       "reopening the widget reconstructs the same quota from local events")
+            let reset = monitor.poll(now: now.addingTimeInterval(5 * 3600), changes: MonitorChanges())
+            try expect(reset.usage.snapshot?.primary == nil && reset.usage.snapshot?.secondary?.usedPercent == 60,
+                       "only the expired window is removed")
         }
     }
     private static func compactRoles() throws {
